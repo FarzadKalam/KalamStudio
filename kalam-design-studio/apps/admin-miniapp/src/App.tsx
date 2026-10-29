@@ -10224,7 +10224,11 @@ function App() {
     const globalStudio = recordValue(payload.format.studio);
     const globalStudioLocation = recordValue(globalStudio.location);
     const globalStudioReferences = recordValue(globalStudio.referenceSelection);
-    const slideUsesStudio = slide.imageMode === "studio" || templateGroup === "studio";
+    // The per-slide image mode is authoritative. A carousel can start from
+    // the Studio template and later switch one slide to generated/reference
+    // imagery; the parent template group must not silently force Studio back
+    // into that slide.
+    const slideUsesStudio = slide.imageMode === "studio";
     const slideHasAttachedImage = slide.files.length > 0;
     const inheritedMonitor = recordValue(globalStudio.monitor);
     const effectiveSlideMonitorMode = slide.studioMonitorMode ?? (inheritedMonitor.mode as string | undefined) ?? "blank";
@@ -10469,6 +10473,20 @@ function App() {
       return;
     }
     if (submissionState === "uploading") return;
+    if (formEditMode && slideSeries && activeJob) {
+      const slide = designSlides[slideSeries.currentIndex];
+      const activeRequest = recordValue(activeJob.request);
+      const oldWasStudio = recordValue(activeRequest.image).mode === "studio" || recordValue(activeRequest.format).family === "studio";
+      const newIsStudio = slide?.imageMode === "studio";
+      if (slide && oldWasStudio !== newIsStudio) {
+        // Changing Studio ↔ generated/reference is a new visual contract, not
+        // a safe pixel edit of the old Studio raster. Submit a fresh isolated
+        // slide job so stale presenter/location fields cannot leak into it.
+        setFormEditMode(false);
+        await submitSeriesSlideAt(slideSeries.currentIndex);
+        return;
+      }
+    }
     const studioManualChoices = [
       ...studioPresenterIds.map((id) => studioPresenterReferences[id]),
       studioLocationMode === "catalog" ? studioLocationReferences : undefined,
