@@ -1635,9 +1635,7 @@ function SlideDeckEditor({
                         {(slide.studioMonitorMode ?? "") === "images" && <><label>رفتار تصویر مانیتور<select value={slide.studioMonitorImageMode ?? "preserve"} onChange={(event) => update(slide.id, "studioMonitorImageMode", event.target.value as ContentSlide["studioMonitorImageMode"])}><option value="preserve">حفظ کامل تصویر پیوست‌شده</option><option value="reference">استفاده وفادار از تصویر مرجع</option><option value="generate">ساخت تصویر جدید برای مانیتور</option></select></label><label>توضیح محتوای مانیتور<textarea maxLength={800} rows={2} value={slide.studioMonitorBrief ?? ""} onChange={(event) => update(slide.id, "studioMonitorBrief", event.target.value)} placeholder="مثلاً نقشه پیوست‌شده را بدون هیچ تغییر داخل مانیتور قرار بده" /></label><small className="hint">فایل‌های همین اسلاید، محتوای مانیتور محسوب می‌شوند؛ در حالت «حفظ کامل» متن، نقشه و پیکسل‌های تصویر نباید تغییر کند.</small></>}
                       </section>
                     )}
-                    {["generate", "reference", "studio"].includes(
-                      slide.imageMode ?? "generate",
-                    ) && (
+                    {(slide.imageMode ?? "generate") === "studio" && (
                       <section className="slide-presenter-picker">
                         <b>استفاده از تصویر مجری در همین اسلاید</b>
                         <p className="hint">
