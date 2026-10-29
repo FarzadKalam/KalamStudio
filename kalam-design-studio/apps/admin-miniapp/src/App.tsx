@@ -163,6 +163,7 @@ import ClubShowcaseFields, { emptyClubShowcase, restoreClubShowcase } from "./Cl
 type Brand = "kalametaze" | "golbahar" | "chenaran";
 type Canvas = "story_1080x1920" | "post_1080x1350" | "sticker_1024x1024";
 type ImageMode = "generate" | "preserve" | "reference" | "studio" | "none";
+type LogoBehavior = "system_header" | "floating_profile" | "none";
 type AppTab =
   | "settings"
   | "video"
@@ -5055,6 +5056,7 @@ function App() {
   const [videoFrame, setVideoFrame] = useState<VideoFrame>("landscape");
   const [videoBackgroundBlur, setVideoBackgroundBlur] = useState(false);
   const [siteLinkPlaceholder, setSiteLinkPlaceholder] = useState(false);
+  const [logoBehavior, setLogoBehavior] = useState<LogoBehavior>("floating_profile");
   const [studioPresenterIds, setStudioPresenterIds] = useState<string[]>(["kamran"]);
   const [studioLocationId, setStudioLocationId] = useState("newsroom");
   const [studioLocationMode, setStudioLocationMode] =
@@ -5078,7 +5080,6 @@ function App() {
   const [studioTitleSpaceEnabled, setStudioTitleSpaceEnabled] = useState(false);
   const [studioTitleSpaceText, setStudioTitleSpaceText] = useState("");
   const [studioCopySpacePlacement, setStudioCopySpacePlacement] = useState<StudioCopySpacePlacement>("auto");
-  const [studioHeaderEnabled, setStudioHeaderEnabled] = useState(false);
   const [studioExpressions, setStudioExpressions] = useState<Record<string, string>>({ kamran: "آرام و مطمئن" });
   const [studioCharacterInstructions, setStudioCharacterInstructions] = useState<Record<string, string>>({});
   const [studioSpeechBubbles, setStudioSpeechBubbles] = useState<Record<string, string[]>>({});
@@ -5781,6 +5782,7 @@ function App() {
       family: templateGroup === "news" ? "news" : templateGroup === "studio" ? "studio" : "fixed",
       template,
       canvas,
+      logoBehavior,
       slideMode:
         designSlides.length > 1
           ? canvas === "post_1080x1350"
@@ -5846,7 +5848,7 @@ function App() {
                 placement: studioCopySpacePlacement,
                 textHint: studioTitleSpaceText.trim(),
               },
-              headerEnabled: studioHeaderEnabled,
+              headerEnabled: logoBehavior === "system_header",
               copySpacePlacement: studioCopySpacePlacement,
               expressions: studioExpressions,
               characterInstructions: studioCharacterInstructions,
@@ -7910,6 +7912,15 @@ function App() {
           : (templateDefinitions.find((item) => item.id === restoredTemplate)
               ?.group ?? "news"),
       );
+      const restoredLogoBehavior = textValue(
+        format.logoBehavior,
+        studio.headerEnabled ? "system_header" : "floating_profile",
+      );
+      setLogoBehavior(
+        ["system_header", "floating_profile", "none"].includes(restoredLogoBehavior)
+          ? restoredLogoBehavior as LogoBehavior
+          : "floating_profile",
+      );
       if (format.family === "studio") {
         const presenterIds = Array.isArray(studio.presenterIds) ? studio.presenterIds.filter((item): item is string => typeof item === "string" && item in presenterLabels) : ["kamran"];
         setStudioPresenterIds(presenterIds.length ? presenterIds : ["kamran"]);
@@ -7939,7 +7950,6 @@ function App() {
         setStudioTitleSpaceText(textValue(titleSpace.textHint) || (legacyBlank ? textValue(studio.text) : ""));
         const restoredPlacement = textValue(titleSpace.placement, textValue(studio.copySpacePlacement, "auto"));
         setStudioCopySpacePlacement(["auto", "left", "right", "top", "bottom"].includes(restoredPlacement) ? restoredPlacement as StudioCopySpacePlacement : "auto");
-        setStudioHeaderEnabled(Boolean(studio.headerEnabled));
         const expressions = recordValue(studio.expressions);
         setStudioExpressions(Object.fromEntries(Object.entries(expressions).filter((entry): entry is [string, string] => typeof entry[1] === "string")));
         const characterInstructions = recordValue(studio.characterInstructions);
@@ -9723,6 +9733,15 @@ function App() {
       format.news && typeof format.news === "object" ? format.news : {}
     ) as Record<string, unknown>;
     const restoredStudio = recordValue(format.studio);
+    const restoredLogoBehavior = textValue(
+      format.logoBehavior,
+      restoredStudio.headerEnabled ? "system_header" : "floating_profile",
+    );
+    setLogoBehavior(
+      ["system_header", "floating_profile", "none"].includes(restoredLogoBehavior)
+        ? restoredLogoBehavior as LogoBehavior
+        : "floating_profile",
+    );
     const restored = Object.fromEntries(
       Object.entries(restoredContent)
         .filter(([, value]) => typeof value === "string")
@@ -9769,7 +9788,6 @@ function App() {
       setStudioTitleSpaceText(textValue(titleSpace.textHint) || (legacyBlank ? textValue(restoredStudio.text) : ""));
       const restoredPlacement = textValue(titleSpace.placement, textValue(restoredStudio.copySpacePlacement, "auto"));
       setStudioCopySpacePlacement(["auto", "left", "right", "top", "bottom"].includes(restoredPlacement) ? restoredPlacement as StudioCopySpacePlacement : "auto");
-      setStudioHeaderEnabled(Boolean(restoredStudio.headerEnabled));
       const expressions = recordValue(restoredStudio.expressions);
       setStudioExpressions(Object.fromEntries(Object.entries(expressions).filter((entry): entry is [string, string] => typeof entry[1] === "string")));
       const characterInstructions = recordValue(restoredStudio.characterInstructions);
@@ -10254,7 +10272,7 @@ function App() {
             templateGroup === "news" && !isCitizenMessage
               ? {
                   ...recordValue(payload.format.news),
-                  layout: slide.titleLayout ?? newsLayout,
+                  layout: slide.titleLayout ?? "top",
                 }
               : payload.format.news,
         },
@@ -10541,6 +10559,24 @@ function App() {
       );
       return;
     }
+    if (activeOutputUrl) URL.revokeObjectURL(activeOutputUrl);
+    setActiveOutputUrl("");
+    setActiveJob(undefined);
+    setActiveJobId("");
+    setSlideSeries((current) =>
+      current ? { ...current, currentIndex: nextIndex } : current,
+    );
+    setSubmissionState("idle");
+    setSubmissionError("");
+    setFormCollapsed(false);
+    setFormEditMode(false);
+    setJobStartedAt(undefined);
+    setElapsedSeconds(0);
+    window.localStorage.removeItem("kalam-design-active-job");
+    setEditorialNotice("اسلاید بعدی برای بررسی و ساخت آماده شد؛ اسلاید تأییدشدهٔ قبلی به‌عنوان مرجع پیوست می‌شود.");
+    window.setTimeout(() => focusSeriesSlide(nextIndex), 0);
+    return;
+    /* legacy auto-open path retained below for reference only
     const nextRequestId = slideSeries.requestIds[nextIndex];
     if (nextRequestId) {
       try {
@@ -10571,7 +10607,7 @@ function App() {
       }
       return;
     }
-    await submitSeriesSlideAt(nextIndex);
+    await submitSeriesSlideAt(nextIndex); */
   }
 
   async function retrySeriesSlide() {
@@ -12331,7 +12367,7 @@ function App() {
                 <option value="title_only">فقط تیتر، بدون عکس</option>
               </select>
             </label>
-            <label>
+            {designSlides.length <= 1 && <label>
               صفحه‌بندی
               <select
                 value={newsLayout}
@@ -12344,7 +12380,7 @@ function App() {
                 <option value="center">تیتر وسط تصویر</option>
                 <option value="bottom">تیتر پایین تصویر</option>
               </select>
-            </label>
+            </label>}
             {newsHasPhoto && !videoOverlay && (
               <label>
                 ابعاد عکس خبر
@@ -12448,10 +12484,18 @@ function App() {
             )}
           </section>
         )}
-        {templateGroup === "studio" && <section className="studio-header-controls">
-          <ModernSwitch checked={studioHeaderEnabled} onChange={setStudioHeaderEnabled} label="سربرگ فعال باشد" />
-          <p className="hint">در صورت فعال‌بودن، سربرگ عمومی رسانه با همان لایهٔ نهایی و ماژولارِ رسانه، بالای تصویر کارکتری قرار می‌گیرد.</p>
-        </section>}
+        <section className="studio-header-controls">
+          <h3>رفتار لوگو و سربرگ</h3>
+          <label>
+            حالت هویت بصری
+            <select value={logoBehavior} onChange={(event) => setLogoBehavior(event.target.value as LogoBehavior)}>
+              <option value="system_header">سربرگ سیستمی</option>
+              <option value="floating_profile">پروفایل شناور</option>
+              <option value="none">بدون پروفایل</option>
+            </select>
+          </label>
+          <p className="hint">در حالت پروفایل شناور، عکس پروفایل رسانه به‌صورت دایره‌ای و خلاقانه داخل تصویر قرار می‌گیرد و کیفیت و نوشته‌های خودش حفظ می‌شود.</p>
+        </section>
         <section className="advertising-controls">
           <h3>تبلیغات</h3>
           <ModernSwitch checked={advertisingEnabled} onChange={setAdvertisingEnabled} label="تبلیغات فعال باشد" />

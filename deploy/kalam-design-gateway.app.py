@@ -2610,6 +2610,11 @@ def validate_request(request: object) -> dict:
         raise ClientError("رسانهٔ انتخاب‌شده معتبر نیست.")
     if request["format"].get("canvas") not in {"story_1080x1920", "post_1080x1350", "sticker_1024x1024"}:
         raise ClientError("ابعاد خروجی معتبر نیست.")
+    requested_logo_behavior = str(request["format"].get("logoBehavior", "")).strip()
+    if requested_logo_behavior not in {"system_header", "floating_profile", "none"}:
+        legacy_studio = request["format"].get("studio") if isinstance(request["format"].get("studio"), dict) else {}
+        requested_logo_behavior = "system_header" if bool(legacy_studio.get("headerEnabled", False)) else "floating_profile"
+    request["format"]["logoBehavior"] = requested_logo_behavior
     if request["image"].get("mode") not in {"generate", "preserve", "reference", "studio", "edit_existing", "none"}:
         raise ClientError("حالت تصویر معتبر نیست.")
     # Settings still provide the default, while the editor may make a one-off

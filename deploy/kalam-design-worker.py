@@ -176,11 +176,29 @@ def uses_editorial_header(record: dict) -> bool:
     """Studio scenes carry identity inside the set, never as a social masthead."""
     request = record.get("request", {})
     format_ = request.get("format", {})
-    image = request.get("image", {}) if isinstance(request.get("image"), dict) else {}
-    if format_.get("family") == "studio" or image.get("mode") == "studio":
+    return resolved_logo_behavior(record) == "system_header"
+
+
+def resolved_logo_behavior(record: dict) -> str:
+    format_ = record.get("request", {}).get("format", {})
+    value = str(format_.get("logoBehavior", "")).strip()
+    if value in {"system_header", "floating_profile", "none"}:
+        return value
+    # Preserve old projects: the historical Studio switch controlled only
+    # the system masthead, while ordinary designs always had it.
+    if format_.get("family") == "studio" or record.get("request", {}).get("image", {}).get("mode") == "studio":
         studio = format_.get("studio") if isinstance(format_.get("studio"), dict) else {}
-        return bool(studio.get("headerEnabled", False))
-    return format_.get("template") != "sticker"
+        return "system_header" if bool(studio.get("headerEnabled", False)) else "floating_profile"
+    return "system_header" if format_.get("template") != "sticker" else "none"
+
+
+def brand_profile_path(brand_id: str) -> Path | None:
+    brand = BRANDS.get(brand_id, BRANDS["kalametaze"])
+    candidates = [
+        ASSET_DIR / "profiles" / str(brand.get("profile", "")),
+        ASSET_DIR / "profiles" / {"kalametaze": "red-white.jpg", "chenaran": "green.jpg", "golbahar": "blue.jpg"}.get(brand_id, ""),
+    ]
+    return next((candidate for candidate in candidates if candidate and candidate.is_file()), None)
 
 
 def editorial_header_copy(record: dict) -> tuple[str, str]:
@@ -984,6 +1002,16 @@ def render_prompt(record: dict) -> str:
 سه واترمارک پراکنده، ظریف و کم‌رنگ را دقیقاً با همین متن لاتین روی تصویر بگذار: «{brand_watermark}». هیچ آیدی یا واترمارک دیگری نساز."""
         header_integrity_rule = "۴) عکس، تایپوگرافی و عناصر گرافیکی باید یک طرح یکپارچه باشند و ناحیهٔ امن بالای کادر باید امتداد طبیعی همان صحنه بماند؛ هیچ فضای سفید یا تزئین تصادفی نساز."
         header_leak_rule = "۳) ناحیهٔ امن بالای کادر برای مرحلهٔ نهایی رزرو شده است؛ در آن هیچ لوگو، سربرگ، خط، دایره یا متن نساز و پس‌زمینهٔ طبیعی صحنه را قطع نکن."
+    elif resolved_logo_behavior(record) == "floating_profile":
+        profile_contract = """پروتکل پروفایل شناور رسانه:
+عکس پروفایل واقعی رسانه در ورودی مرجع پیوست شده است. همان فایل را بدون تغییر کیفیت، نوشته، لوگو، نسبت یا رنگ داخلی حفظ کن و آن را با یک ماسک دایره‌ای تمیز، کوچک و حرفه‌ای در نقطه‌ای از ترکیب‌بندی که با سوژه و تیتر تداخل ندارد قرار بده. جای آن را با سلیقهٔ خودت و متناسب با نور و گرید انتخاب کن؛ لازم نیست در همهٔ تصاویر جای ثابتی داشته باشد. پروفایل را نکِش، بازطراحی نکن، متن داخلش را بازنویسی نکن و نسخهٔ زرد یا رنگیِ ساختگی نساز. هویت رسانه فقط همین پروفایل شناور است؛ سربرگ سیستمی، نوار بالایی، تیتر زرد ثابت، واترمارک یا لوگوی دوم نساز."""
+        identity_protocol = profile_contract
+        header_integrity_rule = "پروفایل دایره‌ای باید با حاشیهٔ تمیز، اندازهٔ خوانا و بدون پوشاندن سوژه یا متن اصلی در خود تصویر قرار بگیرد."
+        header_leak_rule = "هیچ سربرگ سیستمی، نوار بالایی، لوگوی تکراری یا تیتر زرد اجباری تولید نکن."
+    elif resolved_logo_behavior(record) == "none":
+        identity_protocol = "پروتکل بدون پروفایل: هیچ سربرگ، لوگو، پروفایل شناور، واترمارک رسانه‌ای یا نوار هویتی اضافه نکن. هویت را فقط از صحنه و محتوای واقعی درخواست بگیر."
+        header_integrity_rule = "هیچ عنصر هویتی رسانه‌ای تولید نشود."
+        header_leak_rule = "لوگو، سربرگ، پروفایل، نوار بالایی و تیتر زرد ساختگی ممنوع است."
     elif template == "sticker":
         identity_protocol = """پروتکل استیکر:
 این خروجی PNG شفاف و مستقل است. سربرگ اجتماعی، نوار بالایی، واترمارک خبری، نام رسانه یا صحنهٔ پس‌زمینه نساز؛ فقط خودِ استیکر و عناصر چسبیده به آن مجازند."""
@@ -2299,6 +2327,13 @@ def ai_reference_board(record: dict) -> bytes:
             entry = (role, Image.open(target).convert("RGB"))
             uploaded.append(entry)
             user_uploaded.append(entry)
+    if resolved_logo_behavior(record) == "floating_profile":
+        profile_path = brand_profile_path(str(request.get("brand", "kalametaze")))
+        if profile_path:
+            profile_photo = Image.open(profile_path).convert("RGB")
+            profile_entry = ("BRAND PROFILE — PRESERVE EXACTLY; CIRCULAR FLOATING PLACEMENT", profile_photo)
+            uploaded.append(profile_entry)
+            user_uploaded.append(profile_entry)
     studio = request.get("format", {}).get("studio", {})
     studio_image_request = request.get("format", {}).get("family") == "studio" or request.get("image", {}).get("mode") == "studio"
     if studio_image_request and isinstance(studio, dict):
