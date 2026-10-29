@@ -2421,7 +2421,11 @@ def ai_reference_board(record: dict) -> bytes:
             uploaded.append(profile_entry)
             user_uploaded.append(profile_entry)
     studio = request.get("format", {}).get("studio", {})
-    studio_image_request = request.get("format", {}).get("family") == "studio" or request.get("image", {}).get("mode") == "studio"
+    # A carousel slide may select Studio as its image mode while retaining
+    # the parent news family. In that shape the presenter references live
+    # under image.presenterIds, not format.studio; do not route it through an
+    # empty Studio contract and silently drop the identity assets.
+    studio_image_request = request.get("format", {}).get("family") == "studio"
     if studio_image_request and isinstance(studio, dict):
         reference_assets = app.selected_studio_image_reference_assets(request) if hasattr(app, "selected_studio_image_reference_assets") else []
         missing: list[str] = []

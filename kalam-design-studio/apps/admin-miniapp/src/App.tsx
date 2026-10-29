@@ -10229,6 +10229,13 @@ function App() {
     const inheritedMonitor = recordValue(globalStudio.monitor);
     const effectiveSlideMonitorMode = slide.studioMonitorMode ?? (inheritedMonitor.mode as string | undefined) ?? "blank";
     const effectiveSlideMonitorImageMode = slide.studioMonitorImageMode ?? (inheritedMonitor.imageMode as string | undefined) ?? "generate";
+    // Never keep the previously approved slide visible while a new slide is
+    // being submitted; that made a fresh slide look like a duplicate until
+    // the next polling cycle completed.
+    if (activeOutputUrl) {
+      URL.revokeObjectURL(activeOutputUrl);
+      setActiveOutputUrl("");
+    }
     const slideLocationId = slide.studioLocationId?.trim() || studioLocationId;
     const slideStudio = slideUsesStudio
       ? {
