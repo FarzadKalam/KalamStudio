@@ -524,6 +524,11 @@ export type ContentSlide = {
   studioLocationPrompt?: string;
   studioLocationReferenceInstructions?: string;
   studioLocationReferences?: ReferenceChoice;
+  /** Optional per-slide Studio monitor contract; empty fields inherit the parent Studio settings. */
+  studioMonitorMode?: "text" | "images" | "blank" | "disabled";
+  studioMonitorText?: string;
+  studioMonitorImageMode?: "generate" | "reference" | "preserve";
+  studioMonitorBrief?: string;
 };
 export type ContentMedia = {
   mediaId: string;

@@ -1627,6 +1627,14 @@ function SlideDeckEditor({
                         <small className="hint">در حالت پیش‌فرض، تنظیمات کلی استودیو حفظ می‌شود؛ اینجا فقط وقتی مقدار مستقل انتخاب کنید روی همین اسلاید override می‌شود.</small>
                       </section>
                     )}
+                    {(slide.imageMode ?? "generate") === "studio" && (
+                      <section className="slide-studio-monitor-controls">
+                        <b>رفتار مانیتور در این اسلاید</b>
+                        <label>حالت مانیتور<select value={slide.studioMonitorMode ?? "inherit"} onChange={(event) => { const value = event.target.value; update(slide.id, "studioMonitorMode", value === "inherit" ? undefined : value as ContentSlide["studioMonitorMode"]); }}><option value="inherit">استفاده از تنظیمات کلی استودیو</option><option value="disabled">بدون مانیتور</option><option value="text">تیتر متنی روی مانیتور</option><option value="images">تصویر داخل مانیتور</option><option value="blank">مانیتور خالی</option></select></label>
+                        {(slide.studioMonitorMode ?? "") === "text" && <label>متن دقیق مانیتور این اسلاید<textarea maxLength={240} rows={2} value={slide.studioMonitorText ?? ""} onChange={(event) => update(slide.id, "studioMonitorText", event.target.value)} placeholder="تیتر کوتاه و دقیق فارسی" /></label>}
+                        {(slide.studioMonitorMode ?? "") === "images" && <><label>رفتار تصویر مانیتور<select value={slide.studioMonitorImageMode ?? "preserve"} onChange={(event) => update(slide.id, "studioMonitorImageMode", event.target.value as ContentSlide["studioMonitorImageMode"])}><option value="preserve">حفظ کامل تصویر پیوست‌شده</option><option value="reference">استفاده وفادار از تصویر مرجع</option><option value="generate">ساخت تصویر جدید برای مانیتور</option></select></label><label>توضیح محتوای مانیتور<textarea maxLength={800} rows={2} value={slide.studioMonitorBrief ?? ""} onChange={(event) => update(slide.id, "studioMonitorBrief", event.target.value)} placeholder="مثلاً نقشه پیوست‌شده را بدون هیچ تغییر داخل مانیتور قرار بده" /></label><small className="hint">فایل‌های همین اسلاید، محتوای مانیتور محسوب می‌شوند؛ در حالت «حفظ کامل» متن، نقشه و پیکسل‌های تصویر نباید تغییر کند.</small></>}
+                      </section>
+                    )}
                     {["generate", "reference", "studio"].includes(
                       slide.imageMode ?? "generate",
                     ) && (
@@ -1778,6 +1786,11 @@ function SlideDeckEditor({
                       ? ` · ${toPersianDigits(String(activeSlide.elapsedSeconds))} ثانیه`
                       : ""}
                   </small>
+                  {activeSlide.job.outputs.at(-1)?.usage && (
+                    <small className="usage-note">
+                      {usageLabel(activeSlide.job.outputs.at(-1)?.usage) || "هزینهٔ تولید ثبت شد."}
+                    </small>
+                  )}
                 </div>
                 {["queued", "processing", "cancel_requested"].includes(
                   activeSlide.job.state,
@@ -4232,7 +4245,7 @@ function NewsSeekerWorkspace({
       </div>
       <footer className="news-seeker-footer">
         <nav>
-          {[
+                    {[
             { id: "suggestions", label: "پیشنهادهای این ساعت", icon: "★" },
             { id: "all", label: "همهٔ خبرها", icon: "▤" },
             { id: "queue", label: "صف انتشار", icon: "↗" },
@@ -10215,21 +10228,25 @@ function App() {
     const globalStudioReferences = recordValue(globalStudio.referenceSelection);
     const slideUsesStudio = slide.imageMode === "studio" || templateGroup === "studio";
     const slideHasAttachedImage = slide.files.length > 0;
+    const inheritedMonitor = recordValue(globalStudio.monitor);
+    const effectiveSlideMonitorMode = slide.studioMonitorMode ?? (inheritedMonitor.mode as string | undefined) ?? "blank";
+    const effectiveSlideMonitorImageMode = slide.studioMonitorImageMode ?? (inheritedMonitor.imageMode as string | undefined) ?? "generate";
     const slideLocationId = slide.studioLocationId?.trim() || studioLocationId;
     const slideStudio = slideUsesStudio
       ? {
           ...globalStudio,
           presenterIds: slide.presenterIds?.length ? slide.presenterIds : studioPresenterIds,
           locationId: slideLocationId,
-          monitor:
-            slideHasAttachedImage && recordValue(globalStudio.monitor).mode === "blank"
-              ? {
-                  ...recordValue(globalStudio.monitor),
-                  mode: "images",
-                  imageMode: "preserve",
-                  imageCount: 1,
-                }
-              : globalStudio.monitor,
+          monitor: {
+            ...inheritedMonitor,
+            mode: effectiveSlideMonitorMode,
+            text: slide.studioMonitorText ?? inheritedMonitor.text ?? "",
+            imageMode: effectiveSlideMonitorImageMode,
+            brief: slide.studioMonitorBrief ?? inheritedMonitor.brief ?? "",
+            ...(slideHasAttachedImage && effectiveSlideMonitorMode === "blank"
+              ? { mode: "images", imageMode: "preserve", imageCount: 1 }
+              : {}),
+          },
           location: slide.studioLocationMode
             ? {
                 ...globalStudioLocation,
@@ -10317,6 +10334,10 @@ function App() {
             studioLocationPrompt,
             studioLocationReferenceInstructions,
             studioLocationReferences,
+            studioMonitorMode,
+            studioMonitorText,
+            studioMonitorImageMode,
+            studioMonitorBrief,
           }) => ({
             kicker,
             title,
@@ -10337,6 +10358,10 @@ function App() {
             studioLocationPrompt: studioLocationPrompt ?? "",
             studioLocationReferenceInstructions: studioLocationReferenceInstructions ?? "",
             studioLocationReferences: studioLocationReferences ?? automaticReferenceChoice(),
+            studioMonitorMode,
+            studioMonitorText: studioMonitorText ?? "",
+            studioMonitorImageMode: studioMonitorImageMode ?? "preserve",
+            studioMonitorBrief: studioMonitorBrief ?? "",
           }),
         ),
         image: {
@@ -10362,7 +10387,7 @@ function App() {
         ...puzzleFiles,
       ]);
       const monitorReferenceFiles =
-        slideUsesStudio && slideHasAttachedImage && recordValue(globalStudio.monitor).mode === "blank"
+        slideUsesStudio && slideHasAttachedImage && effectiveSlideMonitorMode === "images" && effectiveSlideMonitorImageMode !== "generate"
           ? slide.files
           : [];
       const primarySlideFiles = monitorReferenceFiles.length ? [] : slide.files;

@@ -1000,7 +1000,7 @@ def render_prompt(record: dict) -> str:
         form_modules.append(module("فضای خالیِ متن بلند", f"برای {blank_lines} فقط فضای نوشتنِ خالی، تمیز و متناسب بساز. متن واقعی، خلاصه، متن آزمایشی، لورم‌ایپسوم، خط نمایشی، برچسب یا عبارت جایگزین ننویس؛ تحریریه متن را بعداً دستی وارد می‌کند."))
     if additional_instructions:
         form_modules.append(module("توضیحات تکمیلی کاربر", additional_instructions))
-    if continuity_count or has_user_reference or is_studio_image:
+    if continuity_count or has_user_reference or is_studio_image or design_presenter_ids or record.get("operation") == "visual_edit":
         continuity_rules = [
             "CURRENT-SLIDE USER REFERENCES are authoritative for this slide. Use the attached user image exactly when the brief asks for it; do not replace it with a generated look-alike, redraw its map or screenshot, or invent a substitute.",
             "SERIES CONTINUITY references are previous-slide outputs. They are STYLE/IDENTITY/GRID references only: copy the visual family, camera language, typography rhythm and page-marker geometry, but NEVER copy their text, map, subject, objects, captions or story content into this slide.",
@@ -1010,6 +1010,14 @@ def render_prompt(record: dict) -> str:
                 "STUDIO PRESENTER IDENTITY references are locked identity evidence. Preserve the same woman's face, facial geometry, eyes, nose, mouth, skin texture, hairline and recognizable identity exactly; do not blend her with the previous slide or regenerate a different person. Pose, expression, clothing and camera angle may change only when requested.",
                 "If a current-slide user image is attached and the monitor state is blank or stale, treat that image as the authoritative monitor content: place it inside the studio monitor unchanged, preserving every pixel, line, label and text. Never use the previous slide as monitor content.",
             ])
+        elif design_presenter_ids:
+            continuity_rules.append(
+                "PRESENTER IDENTITY references are locked. The selected presenter must remain the same woman: preserve facial geometry, eyes, nose, mouth, jawline, skin texture, hairline, body proportions and recognizable identity exactly. Do not create a generic woman, composite two references, or replace her with a look-alike. Change only the requested pose/action and keep identity fixed."
+            )
+        if record.get("operation") == "visual_edit":
+            continuity_rules.append(
+                "FORM EDIT LOCK: the existing parent image is the source of truth. Preserve the presenter's face, body, clothing, hair, proportions, studio and all existing visual identity exactly; edit only the specific fields requested in this form. Do not regenerate the person or reinterpret the scene as a new generic composition."
+            )
         if resolved_logo_behavior(record) == "floating_profile":
             continuity_rules.append(
                 "FLOATING PROFILE must be art-directed into the composition, not pasted like a sticker: use a deliberate circular crop with clean edge treatment, subtle scene-matched light/shadow or depth, and a placement that participates in the grid without covering the headline, presenter face or monitor. Keep the profile image's internal text and pixels unchanged; never recolor it yellow or redraw it."
@@ -1508,6 +1516,44 @@ def apply_exact_header(record: dict, image_bytes: bytes) -> bytes:
     """
     image = Image.open(BytesIO(image_bytes)).convert("RGBA")
     if not uses_editorial_header(record):
+        if resolved_logo_behavior(record) == "floating_profile":
+            # Guarantee that the selected floating profile is actually
+            # present even when the image model omits it. The badge is kept
+            # compact, circular and optically integrated rather than pasted
+            # as a square sticker.
+            brand_id = str(record.get("request", {}).get("brand", "kalametaze"))
+            profile_path = brand_profile_path(brand_id)
+            if profile_path and profile_path.exists():
+                badge_size = max(84, round(image.width * 0.105))
+                margin = max(24, round(image.width * 0.035))
+                badge_layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+                badge_draw = ImageDraw.Draw(badge_layer)
+                bx, by = margin, image.height - badge_size - margin
+                badge_draw.ellipse((bx + 5, by + 7, bx + badge_size + 5, by + badge_size + 7), fill=(0, 0, 0, 105))
+                badge_draw.ellipse((bx - 3, by - 3, bx + badge_size + 3, by + badge_size + 3), fill=(255, 255, 255, 225))
+                profile = ImageOps.fit(Image.open(profile_path).convert("RGB"), (badge_size, badge_size), method=LANCZOS).convert("RGBA")
+                mask = Image.new("L", (badge_size, badge_size), 0)
+                ImageDraw.Draw(mask).ellipse((0, 0, badge_size - 1, badge_size - 1), fill=255)
+                profile.putalpha(mask)
+                badge_layer.alpha_composite(profile, (bx, by))
+                image.alpha_composite(badge_layer)
+            # Floating-profile mode removes the large system masthead, but the
+            # media identity watermark remains deterministic and is never left
+            # to the image model to invent or omit (especially on carousel
+            # slides). Keep it small, low-contrast and outside the main copy.
+            watermark = {
+                "kalametaze": "@kalametaze.ir",
+                "golbahar": "@golbahar.kalametaze",
+                "chenaran": "@chenaran.kalametaze",
+            }.get(brand_id, "@kalametaze.ir")
+            draw = ImageDraw.Draw(image)
+            try:
+                font = ImageFont.truetype(str(peyda_font_path("semibold")), max(17, round(image.width * 0.021)))
+            except OSError:
+                font = ImageFont.load_default()
+            x, y = image.width - 28, image.height - 26
+            draw.text((x + 2, y + 2), watermark, font=font, fill=(0, 0, 0, 125), anchor="rs")
+            draw.text((x, y), watermark, font=font, fill=(255, 255, 255, 185), anchor="rs")
         output = BytesIO()
         image.save(output, format="PNG", optimize=True)
         return output.getvalue()
@@ -2348,6 +2394,7 @@ def ai_reference_board(record: dict) -> bytes:
     uploaded: list[tuple[str, Image.Image]] = []
     user_uploaded: list[tuple[str, Image.Image]] = []
     continuity_uploaded: list[tuple[str, Image.Image]] = []
+    presenter_identity_uploaded: list[tuple[str, Image.Image]] = []
     studio_assets: list[tuple[dict, Image.Image]] = []
     for item in record.get("uploadedImages", []):
         filename = item.get("filename", "")
@@ -2407,7 +2454,9 @@ def ai_reference_board(record: dict) -> bytes:
         missing = [item for item in expected_presenters if item not in selected_presenters]
         for asset in reference_assets:
             try:
-                uploaded.append(("PRESENTER IDENTITY", Image.open(app.video_asset_path(asset)).convert("RGB")))
+                entry = ("PRESENTER IDENTITY — FACE AND BODY LOCK", Image.open(app.video_asset_path(asset)).convert("RGB"))
+                uploaded.append(entry)
+                presenter_identity_uploaded.append(entry)
             except (app.ClientError, OSError):
                 missing.append(str(asset.get("entityId", "")))
         if missing:
@@ -2467,6 +2516,32 @@ def ai_reference_board(record: dict) -> bytes:
                     draw.rectangle((cell_x, cell_y, cell_x + cell_w - 1, cell_y + cell_h - 1), outline=(82, 94, 106), width=1)
             output = BytesIO(); canvas.save(output, format="PNG", optimize=True)
             return output.getvalue()
+    if presenter_identity_uploaded and not studio_image_request:
+        # Generated news images previously received presenter portraits as
+        # equal-sized cells beside the brand profile. That encourages the
+        # model to invent a generic person. Give the first (usually close-up)
+        # identity reference a dominant, labelled panel and keep other assets
+        # as secondary evidence.
+        canvas = Image.new("RGB", (1024, 1536), (18, 22, 28))
+        draw = ImageDraw.Draw(canvas)
+        title_font = ImageFont.truetype(str(peyda_font_path("bold")), 22)
+        draw.text((28, 20), "PRIMARY PRESENTER IDENTITY — PRESERVE FACE, HAIR AND BODY", font=title_font, fill=(255, 215, 96))
+        primary = presenter_identity_uploaded[0][1]
+        contained = ImageOps.contain(primary, (960, 940), LANCZOS)
+        canvas.paste(contained, ((1024 - contained.width) // 2, 62 + (940 - contained.height) // 2))
+        secondary = presenter_identity_uploaded[1:] + user_uploaded + continuity_uploaded
+        if secondary:
+            cols = 2
+            cell_w, cell_h = 472, max(180, (1536 - 1030) // ((len(secondary) + 1) // 2))
+            for index, (role, photo) in enumerate(secondary):
+                col, row = index % cols, index // cols
+                x, y = 28 + col * 484, 1030 + row * (cell_h + 12)
+                draw.text((x + 6, y + 5), role, font=ImageFont.truetype(str(peyda_font_path("bold")), 14), fill=(235, 240, 245))
+                small = ImageOps.contain(photo, (cell_w - 8, cell_h - 34), LANCZOS)
+                canvas.paste(small, (x + (cell_w - small.width) // 2, y + 30 + (cell_h - 30 - small.height) // 2))
+                draw.rectangle((x, y, x + cell_w - 1, y + cell_h - 1), outline=(82, 94, 106), width=1)
+        output = BytesIO(); canvas.save(output, format="PNG", optimize=True)
+        return output.getvalue()
     if uploaded:
         available_height = 1536 - header_height - 44
         if len(uploaded) == 1:
