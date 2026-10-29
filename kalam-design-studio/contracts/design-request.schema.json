@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Kalam Design Request",
+  "type": "object",
+  "required": ["requestId", "platform", "adminUserId", "brand", "format", "content", "image"],
+  "properties": {
+    "requestId": { "type": "string" },
+    "platform": { "enum": ["telegram", "bale", "eitaa-web"] },
+    "adminUserId": { "type": "string" },
+    "brand": { "enum": ["kalametaze", "golbahar", "chenaran"] },
+    "format": {
+      "type": "object",
+      "required": ["family", "canvas"],
+      "properties": {
+        "family": { "enum": ["news", "fixed", "interactive", "studio"] },
+        "template": { "type": "string" },
+        "canvas": { "enum": ["story_1080x1920", "post_1080x1350"] },
+        "slideMode": { "enum": ["single", "carousel", "multi_story"] },
+        "slideCount": { "type": "integer", "minimum": 1, "maximum": 10 },
+        "studio": {
+          "type": "object",
+          "properties": {
+            "presenterIds": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+            "locationId": { "type": "string" },
+            "textMode": { "enum": ["monitor", "designed", "blank"] },
+            "text": { "type": "string", "maxLength": 240 },
+            "monitorText": { "type": "string", "maxLength": 240 },
+            "copySpacePlacement": { "enum": ["auto", "left", "right", "top", "bottom"] },
+            "monitor": {
+              "type": "object",
+              "properties": {
+                "mode": { "enum": ["text", "images", "blank"] },
+                "text": { "type": "string", "maxLength": 240 },
+                "imageMode": { "enum": ["generate", "reference", "preserve"] },
+                "imageCount": { "type": "integer", "minimum": 1, "maximum": 4 },
+                "brief": { "type": "string", "maxLength": 800 }
+              }
+            },
+            "titleSpace": {
+              "type": "object",
+              "properties": {
+                "enabled": { "type": "boolean" },
+                "placement": { "enum": ["auto", "left", "right", "top", "bottom"] },
+                "textHint": { "type": "string", "maxLength": 240 }
+              }
+            },
+            "expressions": { "type": "object", "additionalProperties": { "type": "string", "maxLength": 120 } },
+            "characterInstructions": { "type": "object", "additionalProperties": { "type": "string", "maxLength": 600 } }
+          }
+        }
+      }
+    },
+    "content": {
+      "type": "object",
+      "required": ["titleOnly", "title"],
+      "properties": {
+        "titleOnly": { "type": "boolean" },
+        "kicker": { "type": "string" },
+        "title": { "type": "string" },
+        "subtitle": { "type": "string" },
+        "caption": { "type": "string" },
+        "source": { "type": "string" },
+        "clubShowcase": {
+          "type": "object",
+          "required": ["title", "store"],
+          "properties": {
+            "rewardId": { "type": "string", "maxLength": 64 },
+            "title": { "type": "string", "maxLength": 240 },
+            "store": { "type": "string", "maxLength": 240 },
+            "discount": { "type": "string", "maxLength": 240 },
+            "gift": { "type": "string", "maxLength": 240 },
+            "description": { "type": "string", "maxLength": 4000 },
+            "points": { "type": "string", "maxLength": 240 },
+            "expires": { "type": "string", "maxLength": 240 },
+            "address": { "type": "string", "maxLength": 400 }
+          }
+        },
+        "titleLayout": { "enum": ["single", "two_part"] }
+        ,"interactionText": { "type": "string" }
+      }
+    },
+    "image": {
+      "type": "object",
+      "required": ["mode", "engine"],
+      "properties": {
+        "mode": { "enum": ["generate", "preserve", "reference", "edit_existing"] },
+        "engine": { "enum": ["gpt_image_2", "gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gemini_3_1_flash_image", "gemini-3.1-flash-image", "quality_preserving", "none"] },
+        "useAllUploadedImages": { "type": "boolean" },
+        "localEdition": { "enum": ["golbahar", "chenaran"] },
+        "sourceProjectId": { "type": "string" }
+      }
+    },
+    "assets": {
+      "type": "object",
+      "properties": {
+        "adminImageIds": { "type": "array", "items": { "type": "string" } },
+        "presenterAssetIds": { "type": "array", "items": { "type": "string" } },
+        "studioAssetIds": { "type": "array", "items": { "type": "string" } },
+        "logoVariant": { "type": "string" },
+        "fontAssetId": { "type": "string" },
+        "profileAssetId": { "type": "string" }
+      }
+    },
+    "production": {
+      "type": "object",
+      "required": ["kind"],
+      "properties": {
+        "kind": { "enum": ["image", "video"] },
+        "futureVideoDefaults": {
+          "type": "object",
+          "properties": {
+            "segmentDurationSec": { "enum": [8] },
+            "continuity": { "enum": ["locked_brand_and_assets"] }
+          }
+        },
+        "video": {
+          "type": "object",
+          "properties": {
+            "segmentCount": { "type": "integer", "minimum": 1 },
+            "segmentDurationSec": { "enum": [8] },
+            "continuitySeed": { "type": "string" },
+            "sceneAssetIds": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "uploadedImageCount": { "type": "integer", "minimum": 0 }
+  }
+}

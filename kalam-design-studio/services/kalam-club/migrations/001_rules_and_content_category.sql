@@ -1,0 +1,5 @@
+BEGIN;
+ALTER TABLE club_members ADD COLUMN IF NOT EXISTS rules_version VARCHAR(32) NOT NULL DEFAULT '';
+ALTER TABLE club_members ADD COLUMN IF NOT EXISTS rules_accepted_at TIMESTAMPTZ;
+ALTER TABLE club_content_submissions ADD COLUMN IF NOT EXISTS content_category VARCHAR(32) NOT NULL DEFAULT 'other';
+COMMIT;

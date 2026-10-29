@@ -1,0 +1,70 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: /etc/kalam-club/club.env
+    environment:
+      POSTGRES_DB: kalam_club
+      POSTGRES_USER: kalam_club
+    volumes:
+      - club-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kalam_club -d kalam_club"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [club-internal]
+
+  api:
+    build: .
+    restart: unless-stopped
+    env_file: /etc/kalam-club/club.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8093:8093"
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [club-internal]
+
+  clamav:
+    image: clamav/clamav:1.4_base
+    # Run only with `docker compose --profile antivirus up -d`.
+    # The low-memory production host currently uses strict media validation
+    # instead of this 500+ MB service.
+    profiles: ["antivirus"]
+    restart: "no"
+    entrypoint: ["/bin/sh", "/club-clamav-start.sh"]
+    environment:
+      CLAMAV_NO_FRESHCLAMD: "false"
+    volumes:
+      - club-clamav:/var/lib/clamav
+      - ./clamav/start.sh:/club-clamav-start.sh:ro
+    security_opt:
+      - no-new-privileges:true
+    networks: [club-internal]
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["python", "-m", "app.worker"]
+    env_file: /etc/kalam-club/club.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [club-internal]
+
+volumes:
+  club-postgres:
+  club-clamav:
+
+networks:
+  club-internal:
+    name: kalam-club-internal

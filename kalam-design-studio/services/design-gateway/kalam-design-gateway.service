@@ -1,0 +1,23 @@
+[Unit]
+Description=Kalam Design Mini App secure gateway
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/etc/kalam-design/gateway.env
+
+[Service]
+Type=simple
+User=kalam-design
+Group=kalam-design
+EnvironmentFile=/etc/kalam-design/gateway.env
+WorkingDirectory=/opt/kalam-design-gateway
+ExecStart=/usr/bin/python3 /opt/kalam-design-gateway/app.py
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/kalam-design
+
+[Install]
+WantedBy=multi-user.target

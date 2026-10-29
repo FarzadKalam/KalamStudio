@@ -1,0 +1,22 @@
+{
+  "id": "./",
+  "name": "کلام استودیو",
+  "short_name": "کلام استودیو",
+  "description": "استودیو هوشمند تولید، ویرایش و انتشار محتوای کلام تازه",
+  "lang": "fa",
+  "dir": "rtl",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "background_color": "#f7f7f8",
+  "theme_color": "#b5121b",
+  "icons": [
+    {
+      "src": "brand/kalametaze-profile.jpg",
+      "sizes": "1080x1080",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ]
+}

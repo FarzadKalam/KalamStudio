@@ -1,0 +1,72 @@
+name: Build and deploy Kalam Studio
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: kalam-studio-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: kalam-design-studio/apps/admin-miniapp/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install rsync
+        run: sudo apt-get update && sudo apt-get install --yes rsync
+
+      - name: Configure Studio base path
+        run: cp kalam-design-studio/apps/admin-miniapp/.env.example kalam-design-studio/apps/admin-miniapp/.env.production
+
+      - name: Package release
+        env:
+          RELEASE_NAME: studio-${{ github.sha }}
+        run: bash deploy/package-studio-release.sh ".release/$RELEASE_NAME"
+
+      - name: Run backend regression tests
+        run: python -m unittest discover -s deploy/tests -p 'test_*.py'
+
+      - name: Upload release artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalam-studio-${{ github.sha }}
+          path: .release/studio-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Deploy production
+        if: github.event_name != 'pull_request'
+        env:
+          DEPLOY_HOST: ${{ secrets.KALAM_STUDIO_SSH_HOST }}
+          DEPLOY_PORT: ${{ secrets.KALAM_STUDIO_SSH_PORT || '2244' }}
+          DEPLOY_USER: ${{ secrets.KALAM_STUDIO_SSH_USER || 'root' }}
+          KALAM_STUDIO_SSH_KEY: ${{ secrets.KALAM_STUDIO_SSH_KEY }}
+        run: |
+          test -n "$DEPLOY_HOST"
+          test -n "$KALAM_STUDIO_SSH_KEY"
+          install -d -m 0700 "$HOME/.ssh"
+          printf '%s\n' "$KALAM_STUDIO_SSH_KEY" > "$HOME/.ssh/kalam-studio"
+          chmod 0600 "$HOME/.ssh/kalam-studio"
+          ssh-keyscan -p "$DEPLOY_PORT" "$DEPLOY_HOST" >> "$HOME/.ssh/known_hosts"
+          export DEPLOY_KEY_FILE="$HOME/.ssh/kalam-studio"
+          bash deploy/ci-deploy-studio.sh ".release/studio-${GITHUB_SHA}" "studio-${GITHUB_SHA}"
