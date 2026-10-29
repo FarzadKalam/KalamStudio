@@ -8063,11 +8063,40 @@ function App() {
           currentIndex: selectedSeries.slideIndex - 1,
           requestIds,
         });
+        const restoredSeriesOutputs = (
+          await Promise.all(
+            seriesJobs.map(async (job) => {
+              if (job.state !== "completed") return undefined;
+              const output = job.outputs.at(-1);
+              const index = seriesInfo(recordValue(job.request))?.slideIndex;
+              if (!output || !index) return undefined;
+              try {
+                const file = await getDesignOutput(
+                  telegram?.initData,
+                  job.requestId,
+                  output.filename,
+                );
+                if (!file) return undefined;
+                const noHeaderFilename = latestNoHeaderOutput(job)?.filename;
+                return {
+                  index: index - 1,
+                  requestId: job.requestId,
+                  filename: output.filename,
+                  url: URL.createObjectURL(file),
+                  ...(noHeaderFilename ? { noHeaderFilename } : {}),
+                } as SlideSeriesOutput;
+              } catch {
+                return undefined;
+              }
+            }),
+          )
+        ).filter((item): item is SlideSeriesOutput => Boolean(item));
+        setSlideSeriesOutputs(restoredSeriesOutputs);
       } else {
         setDesignSlides([]);
         setSlideSeries(undefined);
+        setSlideSeriesOutputs([]);
       }
-      setSlideSeriesOutputs([]);
       setActiveJob(selectedJob);
       setActiveJobId(selectedJob.requestId);
       setFormCollapsed(
