@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 frontend_dir="$repo_root/kalam-design-studio/apps/admin-miniapp"
+club_portal_dir="$repo_root/kalam-design-studio/apps/club-portal"
 release="${RELEASE_NAME:-studio-${GITHUB_SHA:-local-$(date -u +%Y%m%d%H%M%S)}}"
 stage="${1:-$repo_root/.release/$release}"
 
@@ -14,6 +15,7 @@ if [[ ! -f "$frontend_dir/.env.production" ]]; then
 fi
 
 npm ci --prefix "$frontend_dir"
+npm ci --prefix "$club_portal_dir"
 npm run build --prefix "$frontend_dir"
 
 cp "$repo_root/deploy/kalam-design-gateway.app.py" "$stage/"
