@@ -10214,12 +10214,22 @@ function App() {
     const globalStudioLocation = recordValue(globalStudio.location);
     const globalStudioReferences = recordValue(globalStudio.referenceSelection);
     const slideUsesStudio = slide.imageMode === "studio" || templateGroup === "studio";
+    const slideHasAttachedImage = slide.files.length > 0;
     const slideLocationId = slide.studioLocationId?.trim() || studioLocationId;
     const slideStudio = slideUsesStudio
       ? {
           ...globalStudio,
           presenterIds: slide.presenterIds?.length ? slide.presenterIds : studioPresenterIds,
           locationId: slideLocationId,
+          monitor:
+            slideHasAttachedImage && recordValue(globalStudio.monitor).mode === "blank"
+              ? {
+                  ...recordValue(globalStudio.monitor),
+                  mode: "images",
+                  imageMode: "preserve",
+                  imageCount: 1,
+                }
+              : globalStudio.monitor,
           location: slide.studioLocationMode
             ? {
                 ...globalStudioLocation,
@@ -10351,12 +10361,17 @@ function App() {
         ...slide.files,
         ...puzzleFiles,
       ]);
+      const monitorReferenceFiles =
+        slideUsesStudio && slideHasAttachedImage && recordValue(globalStudio.monitor).mode === "blank"
+          ? slide.files
+          : [];
+      const primarySlideFiles = monitorReferenceFiles.length ? [] : slide.files;
       const result = await submitDesignRequest(
         slideRequest,
         telegram?.initData,
-        slide.files,
+        primarySlideFiles,
         puzzleFiles,
-        [],
+        monitorReferenceFiles,
         progress,
       );
       finishDesignUpload(slide.id);

@@ -396,6 +396,10 @@ def render_prompt(record: dict) -> str:
     if image_mode == "edit_existing":
         image_mode = "preserve"
     reference_count = len(record.get("uploadedImages") or [])
+    uploaded_items = [item for item in (record.get("uploadedImages") or []) if isinstance(item, dict)]
+    continuity_count = sum(1 for item in uploaded_items if str(item.get("role", "")) == "series_previous_slide")
+    user_reference_count = sum(1 for item in uploaded_items if str(item.get("role", "")) != "series_previous_slide")
+    has_user_reference = user_reference_count > 0
     reference_instruction = (
         "تصویر پیوست‌شده داراییِ قفل‌شده و خودِ عکس نهایی است، نه منبع الهام: تمام پیکسل‌های بخش اصلی، سوژه، چهره، بافت پوست، لباس، مکان، اشیا، نور و معنای آن را بدون بازسازی و تغییر نگه دار. عکس مشابه یا نسخهٔ تازه نساز. فقط اگر نسبت بوم ایجاب می‌کند، زمینه را از لبه‌های بیرونی همان عکس به‌طور طبیعی گسترش بده؛ داخل محدودهٔ اصلی عکس را دست‌کاری نکن."
         if reference_count <= 1 else
@@ -408,6 +412,16 @@ def render_prompt(record: dict) -> str:
         "studio": "Ù‡Ù…Ø§Ù† Ù„ÙˆÚ©ÛŒØ´Ù† Ø§Ø³ØªÙˆØ¯ÛŒÙˆÛŒÛŒ Ùˆ Ø§Ù„Ù…Ø§Ù†â€ŒÙ‡Ø§ÛŒ ØªØ£ÛŒÛŒØ¯Ø´Ø¯Ù‡ Ø±Ø§ Ø­ÙØ¸ Ú©Ù†؛ Ø§Ú¯Ø± Ø±ÙØ±Ù†Ø³ Ø§Ø±Ø§Ø¦Ù‡ Ø´Ø¯Ù‡ØŒ Ú©Ø§Ù…Ø±Ø§ØŒ Ú†ÛŒØ¯Ù…Ø§Ù†ØŒ Ù†ÙˆØ±ØŒ Ø²Ù…ÛŒÙ†Ù‡ Ùˆ Ø¬Ø§ÛŒÚ¯Ø°Ø§Ø±ÛŒ Ø±Ø§ Ø¨Ø¯ÙˆÙ† ØªØºÛŒÛŒØ± Ù†Ú¯Ù‡ Ø¯Ø§Ø±؛ Ù…ØªÙ† Ø§ÛŒÙ† Ø§Ø³Ù„Ø§ÛŒØ¯ Ø±Ø§ Ø¨Ø§ Ù‡Ù…ÛŒÙ† Ù„ÙˆÚ©ÛŒØ´Ù† Ùˆ Ù‡Ù…Ø§Ù‡Ù†Ú¯ÛŒ Ù…Ø¬Ù„Ù‡â€ŒØ§ÛŒ Ø±Ù†Ø¯Ø± Ú©Ù†.",
         "none": "هیچ عکس خبری، قاب عکس یا سوژهٔ تصویری مستقل نساز. با تایپوگرافی، رنگ، بافت و گرافیک حرفه‌ایِ کاملاً متناسب با موضوع، طرح را کامل کن.",
     }
+    # The worker file historically contained a mojibake copy of the Studio
+    # wording. Keep the provider-facing contract explicit and ASCII-safe:
+    # attached monitor/reference pixels are evidence to preserve, not a cue to
+    # redraw. This override also applies to legacy saved jobs.
+    image_instructions["studio"] = (
+        "Studio image contract: preserve every attached user-reference image exactly when the request says preserve/reference. "
+        "For a monitor image, place the original image inside the existing monitor surface with its pixels, map geometry, labels, typography and colors unchanged; only apply the monitor's natural perspective, glare and scene lighting outside the image content. "
+        "Do not redraw, translate, summarize, sharpen, recolor, crop, regenerate or replace any part of the attached image. "
+        "The current-slide attachment always outranks a previous-slide continuity reference."
+    )
     layout_instructions = {
         "top": f"صفحه‌بندی پیش‌فرضِ مجله‌ای: {provider_text_start} کل کادر تیتر، تمام حروف و سایهٔ آن را پایین این مرز قرار بده. جای تیتر را متناسب با عکس انتخاب کن و آن را تکراری نساز؛ راست‌چین، وسط‌چین یا چپ‌چین بودن باید آگاهانه و هماهنگ با صحنه باشد. یک یا دو تأکید خلاقانهٔ کنترل‌شده انتخاب کن: بزرگ‌کردن یک واژهٔ کلیدی، تغییر رنگ واژه‌ای مهم، خط ظریف کنار/زیر چند کلمه، یا باکس رنگی محدود زیر بخش مهم تیتر. عکس باید جای طبیعی تیتر را ایجاد کند؛ باکس تیترِ جدا و کلیشه‌ای نساز.",
         "right_column": f"یک ستون عمودیِ یکپارچه و حرفه‌ای در سمت راست بساز. {provider_text_start} خود ستون می‌تواند ادامهٔ طبیعی گرید باشد، اما تیتر و تمام نوشته‌های آن فقط پایین این مرز آغاز شوند. تیتر در بالای همین ستونِ پایین‌آمده، چندخطی و با حداکثر یک یا دو کلمه در هر خط باشد. اگر خروجی پنل کپشن دارد، نیمهٔ پایین ستون را برای همان پنل رزرو کن؛ نوع خروجی مشخص می‌کند پنل خالی باشد یا متن کپشن را بگیرد. در غیر این صورت تیتر در ارتفاع ستون متعادل و شاخص قرار گیرد.",
@@ -986,6 +1000,21 @@ def render_prompt(record: dict) -> str:
         form_modules.append(module("فضای خالیِ متن بلند", f"برای {blank_lines} فقط فضای نوشتنِ خالی، تمیز و متناسب بساز. متن واقعی، خلاصه، متن آزمایشی، لورم‌ایپسوم، خط نمایشی، برچسب یا عبارت جایگزین ننویس؛ تحریریه متن را بعداً دستی وارد می‌کند."))
     if additional_instructions:
         form_modules.append(module("توضیحات تکمیلی کاربر", additional_instructions))
+    if continuity_count or has_user_reference or is_studio_image:
+        continuity_rules = [
+            "CURRENT-SLIDE USER REFERENCES are authoritative for this slide. Use the attached user image exactly when the brief asks for it; do not replace it with a generated look-alike, redraw its map or screenshot, or invent a substitute.",
+            "SERIES CONTINUITY references are previous-slide outputs. They are STYLE/IDENTITY/GRID references only: copy the visual family, camera language, typography rhythm and page-marker geometry, but NEVER copy their text, map, subject, objects, captions or story content into this slide.",
+        ]
+        if is_studio_image:
+            continuity_rules.extend([
+                "STUDIO PRESENTER IDENTITY references are locked identity evidence. Preserve the same woman's face, facial geometry, eyes, nose, mouth, skin texture, hairline and recognizable identity exactly; do not blend her with the previous slide or regenerate a different person. Pose, expression, clothing and camera angle may change only when requested.",
+                "If a current-slide user image is attached and the monitor state is blank or stale, treat that image as the authoritative monitor content: place it inside the studio monitor unchanged, preserving every pixel, line, label and text. Never use the previous slide as monitor content.",
+            ])
+        if resolved_logo_behavior(record) == "floating_profile":
+            continuity_rules.append(
+                "FLOATING PROFILE must be art-directed into the composition, not pasted like a sticker: use a deliberate circular crop with clean edge treatment, subtle scene-matched light/shadow or depth, and a placement that participates in the grid without covering the headline, presenter face or monitor. Keep the profile image's internal text and pixels unchanged; never recolor it yellow or redraw it."
+            )
+        form_modules.append(module("REFERENCE PRIORITY AND SERIES ISOLATION", "\n".join(continuity_rules)))
     if slide_mode in {"multi_story", "carousel"} and slide_count > 1:
         sequence_kind = "استوری چنداسلایدی" if slide_mode == "multi_story" else "کاروسل چنداسلایدی"
         form_modules.append(module("قواعد سریِ یکپارچه", f"این طرح، اسلاید {slide_index} از یک {sequence_kind} با مجموع {slide_count} اسلاید است. همهٔ اسلایدها باید یک سیستم طراحی مشترک داشته باشند: همان ناحیهٔ امن هویت، رنگ‌های اصلی، جنس نور، خانوادهٔ تایپوگرافی، گرید، میزان کارت‌های شیشه‌ای و حس تصویری. قرارداد هر اسلاید این سری نیز دقیقاً این است: {provider_text_start} ترکیب‌بندی هر اسلاید را متناسب با محتوای خودش متفاوت و زنده نگه دار. در پایین طرح، یک نشانگر صفحهٔ مینیمال و حرفه‌ایِ صرفاً گرافیکی بگذار: دقیقاً {slide_count} نقطه/بخش کوچک هم‌ردیف که فقط نقطهٔ شمارهٔ {slide_index} برجسته باشد. هیچ عدد، کلمه، عبارت «صفحه»، «از»، «اسلاید»، یا متن دیگری برای نشانگر ننویس. نشانگر نباید با واترمارک، منبع یا تعامل تداخل داشته باشد."))
@@ -2318,15 +2347,25 @@ def ai_reference_board(record: dict) -> bytes:
     header_height = 0
     uploaded: list[tuple[str, Image.Image]] = []
     user_uploaded: list[tuple[str, Image.Image]] = []
+    continuity_uploaded: list[tuple[str, Image.Image]] = []
     studio_assets: list[tuple[dict, Image.Image]] = []
     for item in record.get("uploadedImages", []):
         filename = item.get("filename", "")
         target = app.project_directory(record["requestId"]) / "uploads" / filename
         if Path(filename).name == filename and target.is_file():
-            role = "MONITOR CONTENT" if item.get("role") == "monitor_reference" else "PUZZLE ASSET" if item.get("role") == "puzzle" else "USER REFERENCE"
+            item_role = str(item.get("role") or "")
+            role = (
+                "MONITOR CONTENT — CURRENT SLIDE; PRESERVE PIXELS AND TEXT"
+                if item_role == "monitor_reference"
+                else "PUZZLE ASSET"
+                if item_role == "puzzle"
+                else "SERIES CONTINUITY — STYLE/IDENTITY/GRID ONLY; NEVER COPY CONTENT"
+                if item_role == "series_previous_slide"
+                else "USER REFERENCE — CURRENT SLIDE; AUTHORITATIVE CONTENT"
+            )
             entry = (role, Image.open(target).convert("RGB"))
             uploaded.append(entry)
-            user_uploaded.append(entry)
+            (continuity_uploaded if item_role == "series_previous_slide" else user_uploaded).append(entry)
     if resolved_logo_behavior(record) == "floating_profile":
         profile_path = brand_profile_path(str(request.get("brand", "kalametaze")))
         if profile_path:
@@ -2407,6 +2446,7 @@ def ai_reference_board(record: dict) -> bytes:
             for asset, photo in locations[1:]:
                 secondary.append(("LOCATION DETAIL ONLY — DO NOT MIX CAMERA ANGLES", photo))
             secondary.extend(user_uploaded)
+            secondary.extend(continuity_uploaded)
             if secondary:
                 cols = 2 if len(secondary) <= 4 else 3
                 rows = (len(secondary) + cols - 1) // cols
