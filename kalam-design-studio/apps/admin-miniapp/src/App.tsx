@@ -29,6 +29,7 @@ import {
   EngagementShowcaseCard,
   EngagementSalesIntegration,
   ImageModelSettings,
+  JobIntermediate,
   TextModelSettings,
   TranscriptionModelSettings,
   UploadTransferProgress,
@@ -230,6 +231,7 @@ type SlideSeriesOutput = {
   index: number;
   requestId: string;
   filename: string;
+  noHeaderFilename?: string;
   url: string;
 };
 type DesignUploadItem = {
@@ -9581,6 +9583,12 @@ function App() {
     }
   }
 
+  function latestNoHeaderOutput(job: DesignJob | undefined): JobIntermediate | undefined {
+    return [...(job?.intermediates ?? [])]
+      .reverse()
+      .find((item) => item.kind === "generated_background" || item.kind === "ai_background");
+  }
+
   async function downloadOutput(filename: string) {
     if (!activeJob) return;
     await downloadJobOutput(activeJob.requestId, filename);
@@ -10493,6 +10501,7 @@ function App() {
           index: slideSeries.currentIndex,
           requestId: activeJob.requestId,
           filename: activeJob.outputs.at(-1)?.filename ?? "output.png",
+          noHeaderFilename: latestNoHeaderOutput(activeJob)?.filename,
           url: activeOutputUrl,
         },
       ]);
@@ -16398,6 +16407,22 @@ function App() {
                     ? "دریافت فایل باکیفیت در چت"
                     : "دانلود فایل اصلی باکیفیت (PNG)"}
                 </button>
+                {latestNoHeaderOutput(activeJob) && (
+                  <button
+                    className="secondary"
+                    onClick={() =>
+                      void downloadJobOutput(
+                        activeJob.requestId,
+                        latestNoHeaderOutput(activeJob)!.filename,
+                      )
+                    }
+                    type="button"
+                  >
+                    {telegram?.initData
+                      ? "ارسال نسخه بدون سربرگ به چت"
+                      : "دانلود بدون سربرگ (PNG)"}
+                  </button>
+                )}
               </div>
             )}
             {outputLoading && (
@@ -16451,6 +16476,17 @@ function App() {
                       >
                         دانلود باکیفیت
                       </button>
+                      {item.noHeaderFilename && (
+                        <button
+                          className="link-button"
+                          onClick={() =>
+                            void downloadJobOutput(item.requestId, item.noHeaderFilename!)
+                          }
+                          type="button"
+                        >
+                          دانلود بدون سربرگ
+                        </button>
+                      )}
                     </figure>
                   ))}
                   {activeOutputUrl &&

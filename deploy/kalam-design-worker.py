@@ -2551,6 +2551,10 @@ def persist_background(record: dict, background: bytes, revised_prompt: str, kin
     temporary.write_bytes(background)
     os.chmod(temporary, 0o640)
     temporary.replace(target)
+    record["intermediates"] = [
+        item for item in record.get("intermediates", [])
+        if item.get("filename") != filename
+    ]
     record.setdefault("intermediates", []).append({
         "kind": kind,
         "filename": filename,
@@ -2649,6 +2653,10 @@ def process(record: dict) -> None:
                         app.save_project(current)
                         time.sleep(wait_seconds)
         current = app.load_project(record["requestId"])
+        # Keep the model-authored raster before the deterministic masthead is
+        # composited. Editors can download this clean version when the model
+        # did not leave enough room for the official header.
+        persist_background(current, image, revised_prompt, usage=usage)
         finalized_image = apply_exact_header(current, image)
         persist_output(current, finalized_image, revised_prompt, usage)
         app.append_job_event(current, "processing", "طرح کامل هوش مصنوعی با موفقیت و به‌صورت پایدار ذخیره شد.")
