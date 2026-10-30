@@ -517,6 +517,7 @@ export type ContentSlide = {
   presenterReferenceSelection?: Record<string, ReferenceChoice>;
   /** Empty means inherit the image engine selected for the parent design. */
   imageEngine?: string;
+  imageQuality?: "low" | "medium" | "high";
   /** Optional per-slide Studio scene contract. Empty fields inherit the parent Studio settings. */
   studioLocationId?: string;
   studioLocationMode?: "catalog" | "generated_prompt" | "exact_reference" | "faithful_reference";
@@ -529,6 +530,20 @@ export type ContentSlide = {
   studioMonitorText?: string;
   studioMonitorImageMode?: "generate" | "reference" | "preserve";
   studioMonitorBrief?: string;
+  studioMonitorImageCount?: number;
+  studioExpressions?: Record<string, string>;
+  studioCharacterInstructions?: Record<string, string>;
+  studioSpeechBubbles?: Record<string, string[]>;
+  visualSettingsInitialized?: boolean;
+  newsOutputKind?: "title_photo" | "title_photo_caption" | "title_only";
+  newsPhotoFrame?: "full" | "landscape" | "square" | "portrait_3_4";
+  videoOverlay?: boolean;
+  videoFrame?: "landscape" | "square" | "portrait";
+  videoBackgroundBlur?: boolean;
+  siteLinkPlaceholder?: boolean;
+  studioTitleSpaceEnabled?: boolean;
+  studioTitleSpacePlacement?: "auto" | "left" | "right" | "top" | "bottom";
+  studioTitleSpaceText?: string;
 };
 export type ContentMedia = {
   mediaId: string;

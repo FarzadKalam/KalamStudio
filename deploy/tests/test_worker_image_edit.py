@@ -59,6 +59,22 @@ class FakeResponse:
 
 
 class WorkerImageEditTests(unittest.TestCase):
+    def test_floating_profile_is_model_authored_not_a_pasted_badge(self) -> None:
+        from io import BytesIO
+        from PIL import Image
+        worker = load_worker()
+        source = BytesIO()
+        Image.new("RGB", (400, 500), (20, 40, 60)).save(source, format="PNG")
+        with mock.patch.object(worker, "brand_profile_path", side_effect=AssertionError("manual profile overlay forbidden")):
+            result = worker.apply_exact_header({"request": {"format": {"logoBehavior": "floating_profile"}}}, source.getvalue())
+        raster = Image.open(BytesIO(result))
+        # A watermark may remain at bottom-right, but no badge can be pasted
+        # at bottom-left or anywhere else by the identity pass.
+        self.assertEqual(raster.getpixel((40, 440))[:3], (20, 40, 60))
+        prompt = worker.floating_profile_prompt()
+        self.assertIn("BRAND PROFILE", prompt)
+        self.assertIn("هیچ نشان دستی", prompt)
+
     def test_edit_request_sets_one_output_as_required_multipart_field(self) -> None:
         worker = load_worker()
         with (

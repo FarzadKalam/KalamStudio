@@ -2598,6 +2598,26 @@ def studio_image_prompt_sections(studio: dict) -> list[str]:
     ]
 
 
+def normalize_series_visual_contract(request: dict) -> None:
+    """Drop inactive Studio branches from serial requests, including old clients."""
+    format_ = request.get("format", {})
+    image = request.get("image", {})
+    if format_.get("slideMode") not in {"carousel", "multi_story"}:
+        return
+    mode = image.get("mode")
+    if mode in {"studio", "edit_existing"}:
+        return
+    format_.pop("studio", None)
+    if format_.get("family") == "studio":
+        format_["family"] = format_.get("baseFamily") if format_.get("baseFamily") in {"news", "fixed"} else "news"
+        if format_.get("template") == "studio":
+            format_["template"] = "news_post" if format_.get("canvas") == "post_1080x1350" else "news_story"
+    format_.pop("baseFamily", None)
+    image["presenterIds"] = []
+    image["referenceSelection"] = {"presenters": {}}
+    image["presenterReferenceSelection"] = {}
+
+
 def validate_request(request: object) -> dict:
     if not isinstance(request, dict):
         raise ClientError("بدنهٔ درخواست طراحی معتبر نیست.")
@@ -2606,6 +2626,7 @@ def validate_request(request: object) -> dict:
         raise ClientError("اطلاعات اصلی درخواست کامل نیست.")
     if not all(isinstance(request.get(key), dict) for key in ("format", "content", "image", "production")):
         raise ClientError("ساختار درخواست طراحی معتبر نیست.")
+    normalize_series_visual_contract(request)
     if request["brand"] not in {"kalametaze", "golbahar", "chenaran"}:
         raise ClientError("رسانهٔ انتخاب‌شده معتبر نیست.")
     if request["format"].get("canvas") not in {"story_1080x1920", "post_1080x1350", "sticker_1024x1024"}:
@@ -2722,12 +2743,15 @@ def validate_request(request: object) -> dict:
             raise ClientError("تنظیمات تصویر استودیو کامل نیست.")
         presenter_entities = VIDEO_ASSET_ENTITIES["presenter"]
         location_entities = VIDEO_ASSET_ENTITIES["location"]
+        raw_presenter_ids = studio.get("presenterIds", [])
+        if not isinstance(raw_presenter_ids, list) or any(not isinstance(item, str) or item not in presenter_entities for item in raw_presenter_ids):
+            raise ClientError("کاراکتر انتخاب‌شده معتبر نیست.")
         presenter_ids = list(dict.fromkeys(
             str(item) for item in studio.get("presenterIds", [])
             if isinstance(item, str) and item in presenter_entities
         ))
-        if not presenter_ids:
-            raise ClientError("دست‌کم یک کاراکتر معتبر انتخاب کنید.")
+        # An explicitly empty list means a Studio scene without a presenter.
+        # Never resurrect a hidden/default character from another slide.
         if len(presenter_ids) > len(presenter_entities):
             raise ClientError("تعداد کاراکترهای انتخاب‌شده معتبر نیست.")
         location_id = str(studio.get("locationId", ""))

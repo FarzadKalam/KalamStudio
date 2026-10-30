@@ -45,6 +45,23 @@ class UploadWhoseTruthValueIsInvalid:
 
 
 class GatewayRegressionTests(unittest.TestCase):
+    def test_serial_non_studio_cannot_reuse_hidden_presenter_or_scene(self) -> None:
+        for mode in ("generate", "preserve", "reference", "none"):
+            request = {
+                "format": {"slideMode": "carousel", "family": "studio", "baseFamily": "news", "template": "news_post", "studio": {"presenterIds": ["tara"]}},
+                "image": {"mode": mode, "presenterIds": ["tara"], "referenceSelection": {"presenters": {"tara": {"mode": "auto"}}}},
+            }
+            gateway.normalize_series_visual_contract(request)
+            self.assertEqual(request["format"]["family"], "news")
+            self.assertNotIn("studio", request["format"])
+            self.assertEqual(request["image"]["presenterIds"], [])
+            self.assertEqual(request["image"]["referenceSelection"], {"presenters": {}})
+
+    def test_serial_studio_keeps_its_explicit_contract(self) -> None:
+        request = {"format": {"slideMode": "carousel", "family": "studio", "studio": {"presenterIds": []}}, "image": {"mode": "studio"}}
+        gateway.normalize_series_visual_contract(request)
+        self.assertEqual(request["format"]["studio"]["presenterIds"], [])
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.data_dir = Path(self.temporary.name)

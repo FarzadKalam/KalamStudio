@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { seedNextSlide, slideNewsContract, slideVisualContract, slideVisualIssue } from "./series-visuals";
 import {
   AccessView,
   AvalaiUsage,
@@ -221,7 +222,7 @@ type PublishUploadItem = {
   error?: string;
 };
 type VideoUploadItem = PublishUploadItem & { kind: "presenter" | "location" | "monitor"; entityId: string };
-type DesignSlide = ContentSlide & { id: string; files: File[] };
+type DesignSlide = ContentSlide & { id: string; files: File[]; monitorFiles?: File[] };
 type SlideSeriesSession = {
   seriesId: string;
   mode: "multi_story" | "carousel";
@@ -899,6 +900,7 @@ function slideFromDesignJob(job: DesignJob): DesignSlide {
     ].includes(textValue(image.engine))
       ? textValue(image.engine)
       : "",
+    imageQuality: ["low", "medium", "high"].includes(textValue(image.quality)) ? image.quality as ContentSlide["imageQuality"] : "medium",
     studioLocationId: textValue(studio.locationId),
     studioLocationMode: [
       "catalog",
@@ -914,13 +916,46 @@ function slideFromDesignJob(job: DesignJob): DesignSlide {
     studioLocationPrompt: textValue(studioLocation.prompt),
     studioLocationReferenceInstructions: textValue(studioLocation.referenceInstructions),
     studioLocationReferences: normaliseReferenceChoice(studioReferences.location),
+    ...slideLayoutSettings({
+      ...recordValue(format.news),
+      newsOutputKind: recordValue(format.news).outputKind,
+      newsPhotoFrame: recordValue(format.news).photoFrame,
+      studioTitleSpaceEnabled: recordValue(studio.titleSpace).enabled,
+      studioTitleSpacePlacement: recordValue(studio.titleSpace).placement,
+      studioTitleSpaceText: recordValue(studio.titleSpace).textHint,
+    }),
+    studioMonitorMode: ["text", "images", "blank", "disabled"].includes(textValue(recordValue(studio.monitor).mode)) ? recordValue(studio.monitor).mode as ContentSlide["studioMonitorMode"] : "blank",
+    studioMonitorText: textValue(recordValue(studio.monitor).text),
+    studioMonitorImageMode: ["generate", "reference", "preserve"].includes(textValue(recordValue(studio.monitor).imageMode)) ? recordValue(studio.monitor).imageMode as ContentSlide["studioMonitorImageMode"] : "preserve",
+    studioMonitorBrief: textValue(recordValue(studio.monitor).brief),
+    studioMonitorImageCount: Math.max(1, Math.min(4, Number(recordValue(studio.monitor).imageCount) || 1)),
+    studioExpressions: recordValue(studio.expressions) as Record<string, string>,
+    studioCharacterInstructions: recordValue(studio.characterInstructions) as Record<string, string>,
+    studioSpeechBubbles: recordValue(studio.speechBubbles) as Record<string, string[]>,
+    visualSettingsInitialized: true,
+    monitorFiles: [],
     files: [],
+  };
+}
+
+function slideLayoutSettings(slide: Record<string, unknown>): Partial<ContentSlide> {
+  return {
+    newsOutputKind: ["title_photo", "title_photo_caption", "title_only"].includes(textValue(slide.newsOutputKind)) ? slide.newsOutputKind as ContentSlide["newsOutputKind"] : "title_photo",
+    newsPhotoFrame: ["full", "landscape", "square", "portrait_3_4"].includes(textValue(slide.newsPhotoFrame)) ? slide.newsPhotoFrame as ContentSlide["newsPhotoFrame"] : "full",
+    videoOverlay: slide.videoOverlay === true,
+    videoFrame: ["landscape", "square", "portrait"].includes(textValue(slide.videoFrame)) ? slide.videoFrame as ContentSlide["videoFrame"] : "landscape",
+    videoBackgroundBlur: slide.videoBackgroundBlur === true,
+    siteLinkPlaceholder: slide.siteLinkPlaceholder === true,
+    studioTitleSpaceEnabled: slide.studioTitleSpaceEnabled === true,
+    studioTitleSpacePlacement: ["auto", "left", "right", "top", "bottom"].includes(textValue(slide.studioTitleSpacePlacement)) ? slide.studioTitleSpacePlacement as ContentSlide["studioTitleSpacePlacement"] : "auto",
+    studioTitleSpaceText: textValue(slide.studioTitleSpaceText),
   };
 }
 
 function slideFromSavedDeck(value: unknown): DesignSlide {
   const slide = recordValue(value);
   return {
+    ...slideLayoutSettings(slide),
     id: crypto.randomUUID(),
     kicker: textValue(slide.kicker),
     title: textValue(slide.title),
@@ -956,6 +991,7 @@ function slideFromSavedDeck(value: unknown): DesignSlide {
     ].includes(textValue(slide.imageEngine))
       ? textValue(slide.imageEngine)
       : "",
+    imageQuality: ["low", "medium", "high"].includes(textValue(slide.imageQuality)) ? slide.imageQuality as ContentSlide["imageQuality"] : "medium",
     studioLocationId: textValue(slide.studioLocationId),
     studioLocationMode: [
       "catalog",
@@ -971,6 +1007,16 @@ function slideFromSavedDeck(value: unknown): DesignSlide {
     studioLocationPrompt: textValue(slide.studioLocationPrompt),
     studioLocationReferenceInstructions: textValue(slide.studioLocationReferenceInstructions),
     studioLocationReferences: normaliseReferenceChoice(slide.studioLocationReferences),
+    studioMonitorMode: ["text", "images", "blank", "disabled"].includes(textValue(slide.studioMonitorMode)) ? slide.studioMonitorMode as ContentSlide["studioMonitorMode"] : "blank",
+    studioMonitorText: textValue(slide.studioMonitorText),
+    studioMonitorImageMode: ["generate", "reference", "preserve"].includes(textValue(slide.studioMonitorImageMode)) ? slide.studioMonitorImageMode as ContentSlide["studioMonitorImageMode"] : "preserve",
+    studioMonitorBrief: textValue(slide.studioMonitorBrief),
+    studioMonitorImageCount: Math.max(1, Math.min(4, Number(slide.studioMonitorImageCount) || 1)),
+    studioExpressions: recordValue(slide.studioExpressions) as Record<string, string>,
+    studioCharacterInstructions: recordValue(slide.studioCharacterInstructions) as Record<string, string>,
+    studioSpeechBubbles: recordValue(slide.studioSpeechBubbles) as Record<string, string[]>,
+    visualSettingsInitialized: slide.visualSettingsInitialized === true || (!["", "generate"].includes(textValue(slide.imageMode))) || Boolean(textValue(slide.imagePrompt) || textValue(slide.referenceInstructions)) || (Array.isArray(slide.presenterIds) && slide.presenterIds.length > 0),
+    monitorFiles: [],
     files: [],
   };
 }
@@ -1214,7 +1260,7 @@ function SlideDeckEditor({
   imageModelSettings,
   isStudioSeries = false,
   studioAssetRegistry,
-  studioDefaultLocationId = "newsroom",
+  onUploadSlideLocation,
 }: {
   slides: DesignSlide[];
   onChange: (slides: DesignSlide[]) => void;
@@ -1244,7 +1290,7 @@ function SlideDeckEditor({
   imageModelSettings?: ImageModelSettings;
   isStudioSeries?: boolean;
   studioAssetRegistry?: VideoAssetRegistry;
-  studioDefaultLocationId?: string;
+  onUploadSlideLocation?: (slideId: string, files: File[]) => void;
 }) {
   const [collapsedSlideIds, setCollapsedSlideIds] = useState<string[]>([]);
   const completedSlideId =
@@ -1266,7 +1312,9 @@ function SlideDeckEditor({
   ) =>
     onChange(
       slides.map((slide) =>
-        slide.id === id ? { ...slide, [field]: value } : slide,
+        slide.id === id ? { ...slide, [field]: value,
+          visualSettingsInitialized: slide.visualSettingsInitialized || !["kicker", "title", "subtitle", "body", "footer", "titleLayout", "additionalInstructions"].includes(field),
+        } : slide,
       ),
     );
   const remove = (id: string) =>
@@ -1275,7 +1323,7 @@ function SlideDeckEditor({
     onChange(
       slides.map((slide) =>
         slide.id === id
-          ? { ...slide, files: [...slide.files, ...incoming] }
+          ? { ...slide, files: [...slide.files, ...incoming], visualSettingsInitialized: true }
           : slide,
       ),
     );
@@ -1297,8 +1345,8 @@ function SlideDeckEditor({
       </div>
       {slides.map((slide, index) => {
         const reviewCollapsed = collapsedSlideIds.includes(slide.id);
-        const slideLocationId = slide.studioLocationId || studioDefaultLocationId;
-        const slideLocationMode = slide.studioLocationMode;
+        const slideLocationId = slide.studioLocationId || "newsroom";
+        const slideLocationMode = slide.studioLocationMode ?? "catalog";
         return (
           <article
             className={reviewCollapsed ? "slide-review-collapsed" : ""}
@@ -1477,6 +1525,14 @@ function SlideDeckEditor({
                         <option value="none">بدون تصویر</option>
                       </select>
                     </label>
+                    <label>کیفیت تصویر همین اسلاید<select value={slide.imageQuality ?? "medium"} onChange={(event) => update(slide.id, "imageQuality", event.target.value as ContentSlide["imageQuality"])}><option value="low">اقتصادی</option><option value="medium">معمولی</option><option value="high">بیشینه</option></select></label>
+                    {isNewsSeries && <section className="slide-news-controls">
+                      <label>ساختار همین اسلاید<select value={slide.newsOutputKind ?? "title_photo"} onChange={(event) => update(slide.id, "newsOutputKind", event.target.value as ContentSlide["newsOutputKind"])}><option value="title_photo">تیتر و عکس</option><option value="title_photo_caption">تیتر و عکس و فضای کپشن</option><option value="title_only">فقط تیتر</option></select></label>
+                      <label>قاب عکس همین اسلاید<select value={slide.newsPhotoFrame ?? "full"} onChange={(event) => update(slide.id, "newsPhotoFrame", event.target.value as ContentSlide["newsPhotoFrame"])}><option value="full">تمام‌صفحه</option><option value="landscape">افقی ۱۶:۹</option><option value="square">مربع</option><option value="portrait_3_4">عمودی ۳:۴</option></select></label>
+                      <label><input type="checkbox" checked={slide.videoOverlay ?? false} onChange={(event) => update(slide.id, "videoOverlay", event.target.checked)} />فضای خالی ویدیو در این اسلاید</label>
+                      {slide.videoOverlay && <><label>نسبت ویدیو<select value={slide.videoFrame ?? "landscape"} onChange={(event) => update(slide.id, "videoFrame", event.target.value as ContentSlide["videoFrame"])}><option value="landscape">افقی</option><option value="square">مربع</option><option value="portrait">عمودی</option></select></label><label><input type="checkbox" checked={slide.videoBackgroundBlur ?? false} onChange={(event) => update(slide.id, "videoBackgroundBlur", event.target.checked)} />زمینهٔ محو</label></>}
+                      <label><input type="checkbox" checked={slide.siteLinkPlaceholder ?? false} onChange={(event) => update(slide.id, "siteLinkPlaceholder", event.target.checked)} />محل لینک سایت در این اسلاید</label>
+                    </section>}
                     {(slide.imageMode ?? "generate") !== "none" && (
                       <label className="reference-upload">
                         افزودن تصاویر مرجع این اسلاید
@@ -1550,11 +1606,10 @@ function SlideDeckEditor({
                                 value ? (value as ContentSlide["studioLocationMode"]) : undefined,
                               );
                               if (value === "catalog" && !slide.studioLocationId) {
-                                update(slide.id, "studioLocationId", studioDefaultLocationId);
+                                update(slide.id, "studioLocationId", "newsroom");
                               }
                             }}
                           >
-                            <option value="">استفاده از تنظیمات کلی استودیو</option>
                             <option value="catalog">لوکیشن ذخیره‌شده</option>
                             <option value="generated_prompt">ساخت لوکیشن با پرامپت</option>
                             <option value="exact_reference">استفاده مستقیم از مرجع لوکیشن</option>
@@ -1612,6 +1667,7 @@ function SlideDeckEditor({
                               </label>
                             )}
                             {(slideLocationMode === "exact_reference" || slideLocationMode === "faithful_reference") && (
+                              <>
                               <ReferenceAssetPicker
                                 assets={studioAssetRegistry?.assets.filter(
                                   (asset) => asset.kind === "location" && asset.entityId === slideLocationId && asset.scope === "project",
@@ -1621,18 +1677,22 @@ function SlideDeckEditor({
                                 onChange={(choice) => update(slide.id, "studioLocationAssetIds", choice.assetIds)}
                                 title="تصاویر مرجع اختصاصی این اسلاید"
                               />
+                              <label className="reference-upload">افزودن مرجع لوکیشن همین اسلاید<input type="file" accept="image/jpeg,image/png,image/webp,video/mp4,video/webm,video/quicktime" multiple onChange={(event) => { const incoming = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ""; if (incoming.length) onUploadSlideLocation?.(slide.id, incoming); }} /><span>افزودن عکس یا فیلم لوکیشن</span></label>
+                              </>
                             )}
                           </>
                         )}
-                        <small className="hint">در حالت پیش‌فرض، تنظیمات کلی استودیو حفظ می‌شود؛ اینجا فقط وقتی مقدار مستقل انتخاب کنید روی همین اسلاید override می‌شود.</small>
+                        <small className="hint">این لوکیشن فقط متعلق به همین اسلاید است و از فرم تصویر تکی خوانده نمی‌شود.</small>
                       </section>
                     )}
                     {(slide.imageMode ?? "generate") === "studio" && (
                       <section className="slide-studio-monitor-controls">
                         <b>رفتار مانیتور در این اسلاید</b>
-                        <label>حالت مانیتور<select value={slide.studioMonitorMode ?? "inherit"} onChange={(event) => { const value = event.target.value; update(slide.id, "studioMonitorMode", value === "inherit" ? undefined : value as ContentSlide["studioMonitorMode"]); }}><option value="inherit">استفاده از تنظیمات کلی استودیو</option><option value="disabled">بدون مانیتور</option><option value="text">تیتر متنی روی مانیتور</option><option value="images">تصویر داخل مانیتور</option><option value="blank">مانیتور خالی</option></select></label>
+                        <label><input type="checkbox" checked={slide.studioTitleSpaceEnabled ?? false} onChange={(event) => update(slide.id, "studioTitleSpaceEnabled", event.target.checked)} />فضای طبیعی برای عنوان یا کپشن</label>
+                        {slide.studioTitleSpaceEnabled && <><label>محل فضای طبیعی<select value={slide.studioTitleSpacePlacement ?? "auto"} onChange={(event) => update(slide.id, "studioTitleSpacePlacement", event.target.value as ContentSlide["studioTitleSpacePlacement"])}>{Object.entries(studioCopySpaceLabels).map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></label><label>متن هدف برای محاسبهٔ فضا<textarea maxLength={240} value={slide.studioTitleSpaceText ?? ""} onChange={(event) => update(slide.id, "studioTitleSpaceText", event.target.value)} /></label></>}
+                        <label>حالت مانیتور<select value={slide.studioMonitorMode ?? "blank"} onChange={(event) => update(slide.id, "studioMonitorMode", event.target.value as ContentSlide["studioMonitorMode"])}><option value="disabled">بدون مانیتور</option><option value="text">تیتر متنی روی مانیتور</option><option value="images">تصویر داخل مانیتور</option><option value="blank">مانیتور خالی</option></select></label>
                         {(slide.studioMonitorMode ?? "") === "text" && <label>متن دقیق مانیتور این اسلاید<textarea maxLength={240} rows={2} value={slide.studioMonitorText ?? ""} onChange={(event) => update(slide.id, "studioMonitorText", event.target.value)} placeholder="تیتر کوتاه و دقیق فارسی" /></label>}
-                        {(slide.studioMonitorMode ?? "") === "images" && <><label>رفتار تصویر مانیتور<select value={slide.studioMonitorImageMode ?? "preserve"} onChange={(event) => update(slide.id, "studioMonitorImageMode", event.target.value as ContentSlide["studioMonitorImageMode"])}><option value="preserve">حفظ کامل تصویر پیوست‌شده</option><option value="reference">استفاده وفادار از تصویر مرجع</option><option value="generate">ساخت تصویر جدید برای مانیتور</option></select></label><label>توضیح محتوای مانیتور<textarea maxLength={800} rows={2} value={slide.studioMonitorBrief ?? ""} onChange={(event) => update(slide.id, "studioMonitorBrief", event.target.value)} placeholder="مثلاً نقشه پیوست‌شده را بدون هیچ تغییر داخل مانیتور قرار بده" /></label><small className="hint">فایل‌های همین اسلاید، محتوای مانیتور محسوب می‌شوند؛ در حالت «حفظ کامل» متن، نقشه و پیکسل‌های تصویر نباید تغییر کند.</small></>}
+                        {(slide.studioMonitorMode ?? "") === "images" && <><label>رفتار تصویر مانیتور<select value={slide.studioMonitorImageMode ?? "preserve"} onChange={(event) => update(slide.id, "studioMonitorImageMode", event.target.value as ContentSlide["studioMonitorImageMode"])}><option value="preserve">حفظ کامل تصویر پیوست‌شده</option><option value="reference">استفاده وفادار از تصویر مرجع</option><option value="generate">ساخت تصویر جدید برای مانیتور</option></select></label><label>توضیح محتوای مانیتور<textarea maxLength={800} rows={2} value={slide.studioMonitorBrief ?? ""} onChange={(event) => update(slide.id, "studioMonitorBrief", event.target.value)} placeholder="مثلاً نقشه پیوست‌شده را بدون هیچ تغییر داخل مانیتور قرار بده" /></label><small className="hint">تصویر مانیتور را فقط در بخش اختصاصی مانیتور پیوست کنید؛ فایل عمومی جایگزین آن نمی‌شود.</small></>}
                       </section>
                     )}
                     {(slide.imageMode ?? "generate") === "studio" && (
@@ -1704,6 +1764,20 @@ function SlideDeckEditor({
                         })}
                       </section>
                     )}
+                    {slide.imageMode === "studio" && slide.studioMonitorMode === "images" && <>
+                      <label>حداکثر نمایشگرهای موجود<select value={slide.studioMonitorImageCount ?? 1} onChange={(event) => update(slide.id, "studioMonitorImageCount", Number(event.target.value))}>{[1, 2, 3, 4].map(count => <option key={count} value={count}>{toPersianDigits(String(count))}</option>)}</select></label>
+                      {(slide.studioMonitorImageMode ?? "preserve") !== "generate" && <>
+                        <label className="reference-upload">تصاویر اختصاصی مانیتور این اسلاید<input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={(event) => { const incoming = Array.from(event.currentTarget.files ?? []); event.currentTarget.value = ""; update(slide.id, "monitorFiles", [...(slide.monitorFiles ?? []), ...incoming]); }} /><span>افزودن تصویر مانیتور</span></label>
+                        <ReferenceFileList files={slide.monitorFiles ?? []} uploads={uploadQueue.filter(item => item.slideId === slide.id)} onRemove={(fileIndex) => update(slide.id, "monitorFiles", (slide.monitorFiles ?? []).filter((_, i) => i !== fileIndex))} />
+                        <small className="hint">فقط فایل‌های این بخش با نقش محتوای مانیتور ارسال می‌شوند؛ تصاویر مرجع عمومی وارد مانیتور نمی‌شوند.</small>
+                      </>}
+                    </>}
+                    {slide.imageMode === "studio" && (slide.presenterIds ?? []).map(id => <section key={id} className="slide-presenter-direction">
+                      <b>{presenterLabels[id]} — رفتار در همین اسلاید</b>
+                      <label>حالت چهره<input maxLength={120} value={slide.studioExpressions?.[id] ?? ""} onChange={(event) => update(slide.id, "studioExpressions", { ...slide.studioExpressions, [id]: event.target.value })} /></label>
+                      <label>ژست، پوشش و محل حضور<textarea maxLength={600} rows={2} value={slide.studioCharacterInstructions?.[id] ?? ""} onChange={(event) => update(slide.id, "studioCharacterInstructions", { ...slide.studioCharacterInstructions, [id]: event.target.value })} /></label>
+                      <label>حباب گفت‌وگو (هر خط یک حباب، حداکثر ۳)<textarea rows={2} value={(slide.studioSpeechBubbles?.[id] ?? []).join("\n")} onChange={(event) => update(slide.id, "studioSpeechBubbles", { ...slide.studioSpeechBubbles, [id]: event.target.value.split("\n").slice(0, 3) })} /></label>
+                    </section>)}
                     <ReferenceFileList
                       files={slide.files}
                       onRemove={(fileIndex) =>
@@ -1744,6 +1818,7 @@ function SlideDeckEditor({
                 </label>
                 {withFiles && (
                   <div className="slide-card-actions">
+                    {slideVisualIssue(slide, slide.files.length, (slide.monitorFiles ?? []).length) && <p className="hint" role="status">{slideVisualIssue(slide, slide.files.length, (slide.monitorFiles ?? []).length)}</p>}
                     {onBuildSlide ? (
                       <button
                         className="primary"
@@ -5665,15 +5740,13 @@ function App() {
       (index !== 0 && (slide?.body.trim() || slide?.footer.trim())),
     );
   const slideReferencesReady = (slide?: DesignSlide) =>
-    !slide || (
-      (!["preserve", "reference"].includes(slide.imageMode ?? "generate") || slide.files.length > 0) &&
-      (slide.imageMode !== "studio" || !["exact_reference", "faithful_reference"].includes(slide.studioLocationMode ?? "") || (slide.studioLocationAssetIds ?? []).length > 0)
-    );
+    !slide || !slideVisualIssue(slide, slide.files.length, (slide.monitorFiles ?? []).length);
   const slideReferenceCount = (slide?: DesignSlide) =>
     !slide
       ? 0
       : slide.files.length +
-        (slide.presenterIds ?? []).reduce((total, id) => {
+        (slide.imageMode === "studio" && slide.studioMonitorMode === "images" && slide.studioMonitorImageMode !== "generate" ? (slide.monitorFiles ?? []).length : 0) +
+        (slide.imageMode === "studio" ? slide.presenterIds ?? [] : []).reduce((total, id) => {
           const choice =
             slide.presenterReferenceSelection?.[id] ??
             automaticReferenceChoice();
@@ -5683,7 +5756,7 @@ function App() {
           );
         }, 0) +
         (slide.imageMode === "studio"
-          ? slide.studioLocationMode === "catalog"
+          ? (slide.studioLocationMode ?? "catalog") === "catalog"
             ? (slide.studioLocationReferences?.mode === "manual"
                 ? new Set(slide.studioLocationReferences.assetIds).size
                 : 1)
@@ -7916,9 +7989,9 @@ function App() {
       setBrand(brands[restoredBrand] ? restoredBrand : "kalametaze");
       setTemplate(templateExists ? restoredTemplate : "news_story");
       setTemplateGroup(
-        format.family === "fixed"
+        (format.baseFamily ?? format.family) === "fixed"
           ? "non_news"
-          : format.family === "studio"
+          : (format.baseFamily ?? format.family) === "studio"
             ? "studio"
           : (templateDefinitions.find((item) => item.id === restoredTemplate)
               ?.group ?? "news"),
@@ -9766,7 +9839,7 @@ function App() {
         ? request.brand
         : "kalametaze",
     );
-    setTemplateGroup(format.family === "news" ? "news" : format.family === "studio" ? "studio" : "non_news");
+    setTemplateGroup((format.baseFamily ?? format.family) === "news" ? "news" : (format.baseFamily ?? format.family) === "studio" ? "studio" : "non_news");
     setTemplate(
       typeof format.template === "string" ? format.template : "news_story",
     );
@@ -10077,10 +10150,12 @@ function App() {
     }
   }
 
-  async function addStudioLocationReferences(incoming: File[]) {
+  async function addStudioLocationReferences(incoming: File[], targetSlideId?: string) {
+    const targetSlide = targetSlideId ? designSlides.find(slide => slide.id === targetSlideId) : undefined;
+    const targetLocationId = targetSlide ? targetSlide.studioLocationId || "newsroom" : studioLocationId;
     const available = Math.max(
       0,
-      studioImageReferenceLimit - studioReferenceCount,
+      studioImageReferenceLimit - (targetSlide ? slideReferenceCount(targetSlide) : studioReferenceCount),
     );
     const selected = incoming.slice(0, available);
     if (!selected.length) {
@@ -10093,7 +10168,7 @@ function App() {
       id: crypto.randomUUID(),
       file,
       kind: "location",
-      entityId: studioLocationId,
+      entityId: targetLocationId,
       loaded: 0,
       total: file.size,
       status: "preparing",
@@ -10114,7 +10189,7 @@ function App() {
           "add",
           {
             kind: "location",
-            entityId: studioLocationId,
+            entityId: targetLocationId,
             image: item.file,
             scope: "project",
           },
@@ -10147,7 +10222,13 @@ function App() {
           .sort((a, b) => b.createdAt - a.createdAt)[0];
         if (added) {
           known.add(added.assetId);
-          setStudioLocationAssetIds((current) => [
+          if (targetSlideId) {
+            setDesignSlides(current => current.map(slide => slide.id === targetSlideId ? {
+              ...slide,
+              studioLocationAssetIds: [...new Set([...(slide.studioLocationAssetIds ?? []), added.assetId])],
+              visualSettingsInitialized: true,
+            } : slide));
+          } else setStudioLocationAssetIds((current) => [
             ...new Set([...current, added.assetId]),
           ]);
         }
@@ -10221,18 +10302,8 @@ function App() {
     const mode =
       slideSeries?.mode ??
       (canvas === "post_1080x1350" ? "carousel" : "multi_story");
-    const globalStudio = recordValue(payload.format.studio);
-    const globalStudioLocation = recordValue(globalStudio.location);
-    const globalStudioReferences = recordValue(globalStudio.referenceSelection);
-    // The per-slide image mode is authoritative. A carousel can start from
-    // the Studio template and later switch one slide to generated/reference
-    // imagery; the parent template group must not silently force Studio back
-    // into that slide.
     const slideUsesStudio = slide.imageMode === "studio";
-    const slideHasAttachedImage = slide.files.length > 0;
-    const inheritedMonitor = recordValue(globalStudio.monitor);
-    const effectiveSlideMonitorMode = slide.studioMonitorMode ?? (inheritedMonitor.mode as string | undefined) ?? "blank";
-    const effectiveSlideMonitorImageMode = slide.studioMonitorImageMode ?? (inheritedMonitor.imageMode as string | undefined) ?? "generate";
+    const visuals = slideVisualContract(slide);
     // Never keep the previously approved slide visible while a new slide is
     // being submitted; that made a fresh slide look like a duplicate until
     // the next polling cycle completed.
@@ -10240,55 +10311,7 @@ function App() {
       URL.revokeObjectURL(activeOutputUrl);
       setActiveOutputUrl("");
     }
-    const slideLocationId = slide.studioLocationId?.trim() || studioLocationId;
-    const slideStudio = slideUsesStudio
-      ? {
-          ...globalStudio,
-          presenterIds: slide.presenterIds?.length ? slide.presenterIds : studioPresenterIds,
-          locationId: slideLocationId,
-          monitor: {
-            ...inheritedMonitor,
-            mode: effectiveSlideMonitorMode,
-            text: slide.studioMonitorText ?? inheritedMonitor.text ?? "",
-            imageMode: effectiveSlideMonitorImageMode,
-            brief: slide.studioMonitorBrief ?? inheritedMonitor.brief ?? "",
-            ...(slideHasAttachedImage && effectiveSlideMonitorMode === "blank"
-              ? { mode: "images", imageMode: "preserve", imageCount: 1 }
-              : {}),
-          },
-          location: slide.studioLocationMode
-            ? {
-                ...globalStudioLocation,
-                mode: slide.studioLocationMode,
-                id: slideLocationId,
-                assetIds: ["exact_reference", "faithful_reference"].includes(slide.studioLocationMode)
-                  ? slide.studioLocationAssetIds ?? []
-                  : undefined,
-                prompt: slide.studioLocationMode === "generated_prompt" ? (slide.studioLocationPrompt ?? "").trim() : undefined,
-                referenceInstructions: slide.studioLocationMode === "faithful_reference" ? (slide.studioLocationReferenceInstructions ?? "").trim() : undefined,
-              }
-            : {
-                ...globalStudioLocation,
-                id: slideLocationId,
-              },
-          referenceSelection: {
-            ...globalStudioReferences,
-            presenters: Object.fromEntries(
-              (slide.presenterIds?.length ? slide.presenterIds : studioPresenterIds).map((id) => [
-                id,
-                slide.presenterReferenceSelection?.[id] ??
-                  recordValue(globalStudioReferences.presenters)[id] ??
-                  automaticReferenceChoice(),
-              ]),
-            ),
-            location: slide.studioLocationMode === "catalog"
-              ? slide.studioLocationReferences ?? automaticReferenceChoice()
-              : slide.studioLocationMode
-                ? automaticReferenceChoice()
-                : globalStudioReferences.location ?? automaticReferenceChoice(),
-          },
-        }
-      : payload.format.studio;
+    const seriesFamily = templateGroup === "studio" ? "news" : payload.format.family;
     setSubmissionState("uploading");
     setSubmissionError("");
     try {
@@ -10297,20 +10320,15 @@ function App() {
         requestId: crypto.randomUUID(),
         format: {
           ...payload.format,
-          family: slideUsesStudio ? "studio" : payload.format.family,
-          baseFamily: slideUsesStudio && payload.format.family !== "studio" ? payload.format.family : undefined,
-          studio: slideStudio,
+          family: slideUsesStudio ? "studio" : seriesFamily,
+          template: payload.format.template === "studio" ? (canvas === "post_1080x1350" ? "news_post" : "news_story") : payload.format.template,
+          baseFamily: slideUsesStudio ? seriesFamily : undefined,
+          studio: visuals.studio,
           slideMode: mode,
           slideCount: designSlides.length,
           slideIndex: index + 1,
           seriesId,
-          news:
-            templateGroup === "news" && !isCitizenMessage
-              ? {
-                  ...recordValue(payload.format.news),
-                  layout: slide.titleLayout ?? "top",
-                }
-              : payload.format.news,
+          news: seriesFamily === "news" && !isCitizenMessage ? slideNewsContract(slide) : undefined,
         },
         content: {
           ...seriesContentForSlide(slide, index),
@@ -10322,67 +10340,18 @@ function App() {
         // worker consumes only `content`, while Library can rebuild cards that
         // have not been rendered yet instead of opening a misleading blank
         // series after a reload.
-        seriesDeck: designSlides.map(
-          ({
-            kicker,
-            title,
-            subtitle,
-            body,
-            footer,
-            titleLayout,
-            imageMode,
-            additionalInstructions,
-            imagePrompt,
-            referenceInstructions,
-            presenterIds,
-            presenterReferenceSelection,
-            imageEngine,
-            studioLocationId,
-            studioLocationMode,
-            studioLocationAssetIds,
-            studioLocationPrompt,
-            studioLocationReferenceInstructions,
-            studioLocationReferences,
-            studioMonitorMode,
-            studioMonitorText,
-            studioMonitorImageMode,
-            studioMonitorBrief,
-          }) => ({
-            kicker,
-            title,
-            subtitle,
-            body,
-            footer,
-            titleLayout,
-            imageMode: imageMode ?? "generate",
-            additionalInstructions: additionalInstructions ?? "",
-            imagePrompt: imagePrompt ?? "",
-            referenceInstructions: referenceInstructions ?? "",
-            presenterIds: presenterIds ?? [],
-            presenterReferenceSelection: presenterReferenceSelection ?? {},
-            imageEngine: imageEngine ?? "",
-            studioLocationId: studioLocationId ?? "",
-            studioLocationMode,
-            studioLocationAssetIds: studioLocationAssetIds ?? [],
-            studioLocationPrompt: studioLocationPrompt ?? "",
-            studioLocationReferenceInstructions: studioLocationReferenceInstructions ?? "",
-            studioLocationReferences: studioLocationReferences ?? automaticReferenceChoice(),
-            studioMonitorMode,
-            studioMonitorText: studioMonitorText ?? "",
-            studioMonitorImageMode: studioMonitorImageMode ?? "preserve",
-            studioMonitorBrief: studioMonitorBrief ?? "",
-          }),
-        ),
+        seriesDeck: designSlides.map(({ id: _id, files: _files, monitorFiles: _monitorFiles, ...settings }) => settings),
         image: {
-          ...payload.image,
-          engine: slide.imageEngine || payload.image.engine,
-          mode: slide.imageMode ?? "generate",
-          prompt: (slide.imagePrompt ?? "").trim(),
-          referenceInstructions: (slide.referenceInstructions ?? "").trim(),
-          presenterIds: slide.presenterIds ?? [],
+          ...visuals.image,
+          engine: slide.imageEngine || imageModelSettings?.defaultModel || "gpt-image-2.5-flare",
+          quality: slide.imageQuality ?? "medium",
+          aiEnabled: true,
+          aiWritesText: true,
+          useAllUploadedImages: slide.imageMode !== "none",
+          presenterIds: visuals.image.presenterIds,
           referenceSelection: {
             presenters: Object.fromEntries(
-              (slide.presenterIds ?? []).map((id) => [
+              visuals.image.presenterIds.map((id) => [
                 id,
                 slide.presenterReferenceSelection?.[id] ??
                   automaticReferenceChoice(),
@@ -10393,18 +10362,18 @@ function App() {
       };
       const progress = beginDesignUpload(slide.id, [
         ...slide.files,
-        ...puzzleFiles,
+        ...(slide.monitorFiles ?? []),
       ]);
       const monitorReferenceFiles =
-        slideUsesStudio && slideHasAttachedImage && effectiveSlideMonitorMode === "images" && effectiveSlideMonitorImageMode !== "generate"
-          ? slide.files
+        slideUsesStudio && visuals.studio?.monitor.mode === "images" && visuals.studio.monitor.imageMode !== "generate"
+          ? slide.monitorFiles ?? []
           : [];
-      const primarySlideFiles = monitorReferenceFiles.length ? [] : slide.files;
+      const primarySlideFiles = slide.imageMode === "none" ? [] : slide.files;
       const result = await submitDesignRequest(
         slideRequest,
         telegram?.initData,
         primarySlideFiles,
-        puzzleFiles,
+        [],
         monitorReferenceFiles,
         progress,
       );
@@ -10468,25 +10437,11 @@ function App() {
   }
 
   async function submit() {
-    if (designSlides.length > 1 && !formEditMode) {
-      await submitSeriesSlideAt(0);
+    if (designSlides.length > 1) {
+      await submitSeriesSlideAt(slideSeries?.currentIndex ?? 0);
       return;
     }
     if (submissionState === "uploading") return;
-    if (formEditMode && slideSeries && activeJob) {
-      const slide = designSlides[slideSeries.currentIndex];
-      const activeRequest = recordValue(activeJob.request);
-      const oldWasStudio = recordValue(activeRequest.image).mode === "studio" || recordValue(activeRequest.format).family === "studio";
-      const newIsStudio = slide?.imageMode === "studio";
-      if (slide && oldWasStudio !== newIsStudio) {
-        // Changing Studio ↔ generated/reference is a new visual contract, not
-        // a safe pixel edit of the old Studio raster. Submit a fresh isolated
-        // slide job so stale presenter/location fields cannot leak into it.
-        setFormEditMode(false);
-        await submitSeriesSlideAt(slideSeries.currentIndex);
-        return;
-      }
-    }
     const studioManualChoices = [
       ...studioPresenterIds.map((id) => studioPresenterReferences[id]),
       studioLocationMode === "catalog" ? studioLocationReferences : undefined,
@@ -10622,10 +10577,13 @@ function App() {
       );
       return;
     }
-    if (activeOutputUrl) URL.revokeObjectURL(activeOutputUrl);
+    // The approved gallery owns the previous URL until the gallery closes.
     setActiveOutputUrl("");
     setActiveJob(undefined);
     setActiveJobId("");
+    setDesignSlides(current => current.map((slide, i) => i === nextIndex
+      ? seedNextSlide(current[slideSeries.currentIndex], slide)
+      : slide));
     setSlideSeries((current) =>
       current ? { ...current, currentIndex: nextIndex } : current,
     );
@@ -10639,38 +10597,6 @@ function App() {
     setEditorialNotice("اسلاید بعدی برای بررسی و ساخت آماده شد؛ اسلاید تأییدشدهٔ قبلی به‌عنوان مرجع پیوست می‌شود.");
     window.setTimeout(() => focusSeriesSlide(nextIndex), 0);
     return;
-    /* legacy auto-open path retained below for reference only
-    const nextRequestId = slideSeries.requestIds[nextIndex];
-    if (nextRequestId) {
-      try {
-        const result = await getDesignJob(telegram?.initData, nextRequestId);
-        if (!result?.job) throw new Error("خروجی اسلاید بعدی پیدا نشد.");
-        if (activeOutputUrl) URL.revokeObjectURL(activeOutputUrl);
-        setActiveOutputUrl("");
-        setActiveJob(result.job);
-        setActiveJobId(result.job.requestId);
-        setSlideSeries((current) =>
-          current ? { ...current, currentIndex: nextIndex } : current,
-        );
-        setJobStartedAt(Date.now());
-        setElapsedSeconds(0);
-        window.localStorage.setItem(
-          "kalam-design-active-job",
-          result.job.requestId,
-        );
-        setEditorialNotice(
-          `اسلاید ${toPersianDigits(String(nextIndex + 1))} از قبل ساخته شده و برای بازبینی باز شد.`,
-        );
-      } catch (error) {
-        setSubmissionError(
-          error instanceof Error
-            ? error.message
-            : "بازکردن اسلاید بعدی ناموفق بود.",
-        );
-      }
-      return;
-    }
-    await submitSeriesSlideAt(nextIndex); */
   }
 
   async function retrySeriesSlide() {
@@ -10693,6 +10619,21 @@ function App() {
         const result = await getDesignJob(telegram?.initData, requestId);
         if (!result?.job) throw new Error("نسخهٔ ذخیره‌شدهٔ اسلاید پیدا نشد.");
         const job = result.job;
+        // Rehydrate only this slide's real user files. Continuity rasters are
+        // style hints owned by the server, never editable user attachments.
+        if (!slide.files.length && !(slide.monitorFiles ?? []).length) {
+          const references = await Promise.all((job.uploadedImages ?? [])
+            .filter(item => ["reference", "monitor_reference"].includes(item.role ?? "reference"))
+            .map(async item => {
+              const blob = await getDesignReferenceOutput(telegram?.initData, job.requestId, item.filename);
+              return blob ? { role: item.role, file: new File([blob], item.filename, { type: blob.type || "image/png" }) } : undefined;
+            }));
+          setDesignSlides(current => current.map(entry => entry.id === slide.id ? {
+            ...entry,
+            files: references.filter(item => item && item.role !== "monitor_reference").map(item => item!.file),
+            monitorFiles: references.filter(item => item?.role === "monitor_reference").map(item => item!.file),
+          } : entry));
+        }
         if (activeOutputUrl) URL.revokeObjectURL(activeOutputUrl);
         setActiveOutputUrl("");
         setActiveJob(job);
@@ -12310,7 +12251,7 @@ function App() {
         {template === "club_showcase" && <ClubShowcaseFields initData={telegram?.initData} value={clubShowcase} onChange={setClubShowcase} onImages={replaceShowcaseImages} />}
         {template === "club_promotion" && <p className="hint">پوستر دعوت به عضویت؛ لوگوی رسمی باشگاه خودکار روی خروجی قرار می‌گیرد. تیتر دعوت، مزیت عضویت و راه ورود را در فیلدها بنویسید. فقط امتیازها و هدیه‌های واقعی را ذکر کنید.</p>}
         {template.startsWith("club_") && !["club_showcase", "club_promotion"].includes(template) && <p className="hint">محتوای ارسالی اعضای باشگاه؛ نام مخاطب را فقط با اجازه او درج کنید. عکس‌های ارسالی را در بخش تصاویر مرجع اضافه کنید.</p>}
-        {templateGroup === "studio" && <section className="studio-image-controls">
+        {templateGroup === "studio" && designSlides.length <= 1 && <section className="studio-image-controls">
           <h3>کاراکتر و صحنه</h3>
           <p className="hint">حالت خودکار مناسب‌ترین تصویر را بر اساس قاب برمی‌گزیند؛ برای کنترل دقیق‌تر می‌توانید انتخاب دستی را برای هر کاراکتر یا لوکیشن فعال کنید.</p>
           <p className={`reference-budget ${studioReferenceCount > studioImageReferenceLimit ? "over-limit" : ""}`}>بودجهٔ تصویرساز: {toPersianDigits(String(studioReferenceCount))} از {toPersianDigits(String(studioImageReferenceLimit))} ورودی؛ شامل مرجع‌های خودکار/دستی، تصاویر آپلودی کاربر و تصاویر مانیتور.</p>
@@ -12412,7 +12353,7 @@ function App() {
             </p>
           </section>
         )}
-        {templateGroup === "news" && !isCitizenMessage && (
+        {templateGroup === "news" && !isCitizenMessage && designSlides.length <= 1 && (
           <section className="news-controls">
             <h3>ساختار استوری/پست خبری</h3>
             <label>
@@ -12663,7 +12604,7 @@ function App() {
               imageModelSettings={imageModelSettings}
               isStudioSeries={templateGroup === "studio"}
               studioAssetRegistry={studioAssetRegistry}
-              studioDefaultLocationId={studioLocationId}
+              onUploadSlideLocation={(slideId, incoming) => void addStudioLocationReferences(incoming, slideId)}
               isNewsSeries={templateGroup === "news" && !isCitizenMessage}
               slides={designSlides}
               uploadQueue={designUploadQueue}

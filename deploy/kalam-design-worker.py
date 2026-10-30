@@ -228,6 +228,14 @@ def editorial_header_copy(record: dict) -> tuple[str, str]:
     return header_label, brand_title
 
 
+def floating_profile_prompt() -> str:
+    """One art-direction module, shared by single images and carousel slides."""
+    return """پروتکل طراحی نشان پروفایل شناور:
+تصویر پیوست با برچسب BRAND PROFILE دارایی رسمی و قفل‌شدهٔ رسانه است؛ تصویر سوژه یا محتوای مانیتور نیست. فقط یک نشان دایره‌ای کامل از همین دارایی در خودِ طراحی بساز. همهٔ نوشته‌ها، رنگ‌ها، نسبت‌ها و کیفیت داخل نشان را عیناً حفظ کن؛ بازنویسی، تغییر لوگو، برش حروف و حذف بخشی از دایره ممنوع است.
+نشان را از ابتدا جزئی از آرت‌دایرکشن و گرید همان تصویر طراحی کن، نه آواتار چسبانده‌شده در گوشه. یکی از این راهکارها را متناسب با طرح انتخاب کن: مدالیون ظریف هم‌سطح با کارت خبری، نشانی با عمق شیشه‌ای کنترل‌شده در اتصال دو سطح، یا نشان دایره‌ای در فضای منفی مرتبط با مسیر بصری تیتر. دور نشان فضای تنفس، لبهٔ بسیار تمیز، نور هم‌جهت صحنه و سایهٔ اتصال ظریف داشته باشد. از قاب سفید ضخیم، هالهٔ اغراق‌آمیز، افکت استیکری، دایرهٔ ناقص، اعوجاج و بزرگی مزاحم پرهیز کن.
+چهره، تیتر، نقشه و اطلاعات مانیتور را نپوشان. نشان در اندازهٔ موبایل خوانا باشد ولی بر تیتر غالب نشود. در سری، زبان طراحی نشان هماهنگ بماند، اما محل آن متناسب با ترکیب‌بندی هر اسلاید انتخاب شود. یک پروفایل کافی است؛ هیچ پروفایل دوم یا سربرگ سیستمی نساز. رنگ تیتر را آزادانه بر اساس تم رسانه و کنتراست صحنه انتخاب کن؛ زرد اجباری نیست. هیچ نشان دستی بعد از تولید اضافه نمی‌شود؛ همین خروجی باید نشان را کامل و زیبا داشته باشد."""
+
+
 def render_prompt(record: dict) -> str:
     """Build one finished, AI-authored design — no post-generation renderer.
 
@@ -395,7 +403,7 @@ def render_prompt(record: dict) -> str:
     # key for the internal ``edit_existing`` transport mode.
     if image_mode == "edit_existing":
         image_mode = "preserve"
-    reference_count = len(record.get("uploadedImages") or [])
+    reference_count = len([item for item in (record.get("uploadedImages") or []) if item.get("role") != "series_previous_slide"])
     uploaded_items = [item for item in (record.get("uploadedImages") or []) if isinstance(item, dict)]
     continuity_count = sum(1 for item in uploaded_items if str(item.get("role", "")) == "series_previous_slide")
     user_reference_count = sum(1 for item in uploaded_items if str(item.get("role", "")) != "series_previous_slide")
@@ -1008,12 +1016,14 @@ def render_prompt(record: dict) -> str:
         if is_studio_image:
             continuity_rules.extend([
                 "STUDIO PRESENTER IDENTITY references are locked identity evidence. Preserve the same woman's face, facial geometry, eyes, nose, mouth, skin texture, hairline and recognizable identity exactly; do not blend her with the previous slide or regenerate a different person. Pose, expression, clothing and camera angle may change only when requested.",
-                "If a current-slide user image is attached and the monitor state is blank or stale, treat that image as the authoritative monitor content: place it inside the studio monitor unchanged, preserving every pixel, line, label and text. Never use the previous slide as monitor content.",
+                "Only MONITOR CONTENT references belong inside a monitor. USER REFERENCE files are separate general assets, never implicitly monitor content. Honor the explicit monitor mode: blank means blank, disabled means no monitor, images uses only the dedicated monitor attachments. Never use the previous slide as monitor content.",
             ])
         elif design_presenter_ids:
             continuity_rules.append(
                 "PRESENTER IDENTITY references are locked. The selected presenter must remain the same woman: preserve facial geometry, eyes, nose, mouth, jawline, skin texture, hairline, body proportions and recognizable identity exactly. Do not create a generic woman, composite two references, or replace her with a look-alike. Change only the requested pose/action and keep identity fixed."
             )
+        if not design_presenter_ids and not (studio.get("presenterIds") if is_studio_image else []):
+            continuity_rules.append("No presenter is selected for this slide. Do not import any presenter, face, body, Studio location or monitor from SERIES CONTINUITY. Previous slides supply graphic style only; the subject and scene must come exclusively from this slide's brief and user attachments.")
         if record.get("operation") == "visual_edit":
             continuity_rules.append(
                 "FORM EDIT LOCK: the existing parent image is the source of truth. Preserve the presenter's face, body, clothing, hair, proportions, studio and all existing visual identity exactly; edit only the specific fields requested in this form. Do not regenerate the person or reinterpret the scene as a new generic composition."
@@ -1040,9 +1050,7 @@ def render_prompt(record: dict) -> str:
         header_integrity_rule = "۴) عکس، تایپوگرافی و عناصر گرافیکی باید یک طرح یکپارچه باشند و ناحیهٔ امن بالای کادر باید امتداد طبیعی همان صحنه بماند؛ هیچ فضای سفید یا تزئین تصادفی نساز."
         header_leak_rule = "۳) ناحیهٔ امن بالای کادر برای مرحلهٔ نهایی رزرو شده است؛ در آن هیچ لوگو، سربرگ، خط، دایره یا متن نساز و پس‌زمینهٔ طبیعی صحنه را قطع نکن."
     elif resolved_logo_behavior(record) == "floating_profile":
-        profile_contract = """پروتکل پروفایل شناور رسانه:
-عکس پروفایل واقعی رسانه در ورودی مرجع پیوست شده است. همان فایل را بدون تغییر کیفیت، نوشته، لوگو، نسبت یا رنگ داخلی حفظ کن و آن را با یک ماسک دایره‌ای تمیز، کوچک و حرفه‌ای در نقطه‌ای از ترکیب‌بندی که با سوژه و تیتر تداخل ندارد قرار بده. جای آن را با سلیقهٔ خودت و متناسب با نور و گرید انتخاب کن؛ لازم نیست در همهٔ تصاویر جای ثابتی داشته باشد. پروفایل را نکِش، بازطراحی نکن، متن داخلش را بازنویسی نکن و نسخهٔ زرد یا رنگیِ ساختگی نساز. هویت رسانه فقط همین پروفایل شناور است؛ سربرگ سیستمی، نوار بالایی، تیتر زرد ثابت، واترمارک یا لوگوی دوم نساز."""
-        identity_protocol = profile_contract
+        identity_protocol = floating_profile_prompt() + f"\nواترمارک ظریف رسانه: {brand_watermark}."
         header_integrity_rule = "پروفایل دایره‌ای باید با حاشیهٔ تمیز، اندازهٔ خوانا و بدون پوشاندن سوژه یا متن اصلی در خود تصویر قرار بگیرد."
         header_leak_rule = "هیچ سربرگ سیستمی، نوار بالایی، لوگوی تکراری یا تیتر زرد اجباری تولید نکن."
     elif resolved_logo_behavior(record) == "none":
@@ -1517,26 +1525,9 @@ def apply_exact_header(record: dict, image_bytes: bytes) -> bytes:
     image = Image.open(BytesIO(image_bytes)).convert("RGBA")
     if not uses_editorial_header(record):
         if resolved_logo_behavior(record) == "floating_profile":
-            # Guarantee that the selected floating profile is actually
-            # present even when the image model omits it. The badge is kept
-            # compact, circular and optically integrated rather than pasted
-            # as a square sticker.
             brand_id = str(record.get("request", {}).get("brand", "kalametaze"))
-            profile_path = brand_profile_path(brand_id)
-            if profile_path and profile_path.exists():
-                badge_size = max(84, round(image.width * 0.105))
-                margin = max(24, round(image.width * 0.035))
-                badge_layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
-                badge_draw = ImageDraw.Draw(badge_layer)
-                bx, by = margin, image.height - badge_size - margin
-                badge_draw.ellipse((bx + 5, by + 7, bx + badge_size + 5, by + badge_size + 7), fill=(0, 0, 0, 105))
-                badge_draw.ellipse((bx - 3, by - 3, bx + badge_size + 3, by + badge_size + 3), fill=(255, 255, 255, 225))
-                profile = ImageOps.fit(Image.open(profile_path).convert("RGB"), (badge_size, badge_size), method=LANCZOS).convert("RGBA")
-                mask = Image.new("L", (badge_size, badge_size), 0)
-                ImageDraw.Draw(mask).ellipse((0, 0, badge_size - 1, badge_size - 1), fill=255)
-                profile.putalpha(mask)
-                badge_layer.alpha_composite(profile, (bx, by))
-                image.alpha_composite(badge_layer)
+            # The model designs the floating profile within the composition.
+            # Never paste a second badge or repair it with a fixed overlay.
             # Floating-profile mode removes the large system masthead, but the
             # media identity watermark remains deterministic and is never left
             # to the image model to invent or omit (especially on carousel

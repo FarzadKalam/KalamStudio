@@ -49,6 +49,9 @@ jobs:
       - name: Run backend regression tests
         run: python -m unittest discover -s deploy/tests -p 'test_*.py'
 
+      - name: Run carousel visual isolation tests
+        run: npm --prefix kalam-design-studio/apps/admin-miniapp test
+
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
