@@ -62,6 +62,12 @@ class GatewayRegressionTests(unittest.TestCase):
         gateway.normalize_series_visual_contract(request)
         self.assertEqual(request["format"]["studio"]["presenterIds"], [])
 
+    def test_studio_without_presenter_has_no_portrait_or_character_direction(self) -> None:
+        prompt = "\n".join(gateway.studio_image_prompt_sections({"presenterIds": [], "locationId": "newsroom", "monitor": {"mode": "blank"}}))
+        self.assertIn("بدون مجری", prompt)
+        self.assertNotIn("۱۶ تا ۲۴", prompt)
+        self.assertNotIn("تک‌مجری", prompt)
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         self.data_dir = Path(self.temporary.name)

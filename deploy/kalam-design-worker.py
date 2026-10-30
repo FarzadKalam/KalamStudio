@@ -1015,12 +1015,12 @@ def render_prompt(record: dict) -> str:
         ]
         if is_studio_image:
             continuity_rules.extend([
-                "STUDIO PRESENTER IDENTITY references are locked identity evidence. Preserve the same woman's face, facial geometry, eyes, nose, mouth, skin texture, hairline and recognizable identity exactly; do not blend her with the previous slide or regenerate a different person. Pose, expression, clothing and camera angle may change only when requested.",
+                "When presenters are explicitly selected, STUDIO PRESENTER IDENTITY references are locked identity evidence. Preserve each selected person's face, facial geometry, eyes, nose, mouth, skin texture, hairline and recognizable identity exactly; do not blend identities with the previous slide or regenerate a different person. Pose, expression, clothing and camera angle may change only when requested. With no selected presenters, do not invent a person.",
                 "Only MONITOR CONTENT references belong inside a monitor. USER REFERENCE files are separate general assets, never implicitly monitor content. Honor the explicit monitor mode: blank means blank, disabled means no monitor, images uses only the dedicated monitor attachments. Never use the previous slide as monitor content.",
             ])
         elif design_presenter_ids:
             continuity_rules.append(
-                "PRESENTER IDENTITY references are locked. The selected presenter must remain the same woman: preserve facial geometry, eyes, nose, mouth, jawline, skin texture, hairline, body proportions and recognizable identity exactly. Do not create a generic woman, composite two references, or replace her with a look-alike. Change only the requested pose/action and keep identity fixed."
+                "PRESENTER IDENTITY references are locked. Each selected presenter must remain the same person: preserve facial geometry, eyes, nose, mouth, jawline, skin texture, hairline, body proportions and recognizable identity exactly. Do not create a generic person, composite two identities, or replace a presenter with a look-alike. Change only the requested pose/action and keep identity fixed."
             )
         if not design_presenter_ids and not (studio.get("presenterIds") if is_studio_image else []):
             continuity_rules.append("No presenter is selected for this slide. Do not import any presenter, face, body, Studio location or monitor from SERIES CONTINUITY. Previous slides supply graphic style only; the subject and scene must come exclusively from this slide's brief and user attachments.")
