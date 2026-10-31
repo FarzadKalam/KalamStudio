@@ -350,13 +350,14 @@ export type VideoGenerationModel = "veo_3_1" | "gemini_omni_flash";
 export type VideoDirectionMode = "news_bulletin" | "explainer" | "social_reel" | "cinematic_report";
 export type VideoShot =
   | "formal" | "semi_formal" | "close_up" | "medium" | "full"
-  | "moving" | "podium" | "microphone" | "reference";
-export type VideoLine = { id: string; presenterId: string; text: string; shot: VideoShot };
+  | "moving" | "podium" | "microphone" | "reference" | "selfie";
+export type VideoLine = { id: string; presenterId: string; text: string; shot: VideoShot; durationSeconds?: number; description?: string; speechEnabled?: boolean; dialogueStartSecond?: number; dialogueEndSecond?: number };
 export type VideoMotionTextStyle = "headline" | "lower_third" | "stat" | "label";
 export type VideoMotionTextPosition = "top" | "center" | "bottom" | "left" | "right";
 export type VideoMotionTextAnimation = "fade" | "slide_up" | "slide_left" | "type_on";
 export type VideoTimelineBeat = {
   id: string;
+  sceneIndex?: number;
   startSecond: number;
   endSecond: number;
   description: string;
@@ -374,8 +375,8 @@ export type VideoProjectInput = {
   qualityMode: VideoQualityMode;
   generationModel: VideoGenerationModel;
   directionMode: VideoDirectionMode;
-  durationSeconds: 4 | 6 | 8;
-  resolution: "720p" | "1080p";
+  durationSeconds: number;
+  resolution: "360p" | "720p" | "1080p" | "4k";
   speechEnabled: boolean;
   additionalInstructions?: string;
   characterInstructions?: Record<string, string>;
@@ -398,7 +399,7 @@ export type VideoProjectInput = {
 export type VideoSegment = { index: number; state: string; progress: number; presenterId: string; shot: VideoShot; error?: string };
 export type VideoProjectEvent = { at: number; attempt?: number; state: string; message: string };
 export type VideoAttempt = { attempt: number; finishedAt: number; state: string; outputFilename?: string; segments?: Array<Pick<VideoSegment, "index" | "state" | "progress" | "error">> };
-export type VideoProject = { projectId: string; state: string; attempt?: number; attempts?: VideoAttempt[]; createdAt: number; updatedAt: number; project: VideoProjectInput; segments: VideoSegment[]; events?: VideoProjectEvent[]; outputFilename?: string; estimatedSeconds: number; estimatedCostUsd: number; error?: string };
+export type VideoProject = { projectId: string; state: string; attempt?: number; attempts?: VideoAttempt[]; createdAt: number; updatedAt: number; project: VideoProjectInput; segments: VideoSegment[]; events?: VideoProjectEvent[]; outputFilename?: string; estimatedSeconds: number; estimatedCostUsd: number; error?: string; promptPackage?: VideoPromptPreview };
 export type VideoAssetProfile = {
   role: string;
   aspectRatio: "portrait" | "landscape" | "square" | "flexible";

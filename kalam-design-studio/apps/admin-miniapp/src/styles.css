@@ -2487,6 +2487,17 @@ pre {
 .video-lines article { display: grid; gap: 9px; padding: 14px 0; border-top: 1px solid #edf0f4; }
 .video-lines article > div { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .video-lines textarea { min-height: 86px; }
+.video-scene-editor label { display: grid; gap: 6px; min-width: 0; }
+.video-scene-editor label:has(input[type="checkbox"]) { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.video-scene-editor input[type="checkbox"] { width: 20px; height: 20px; flex: 0 0 20px; }
+.video-scene-editor article > .video-timeline { grid-template-columns: minmax(0, 1fr); }
+.video-scene-editor .video-timeline article { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.video-scene-editor .video-timeline article > b,
+.video-scene-editor .video-timeline label:has(textarea) { grid-column: 1 / -1; }
+.video-scene-editor input, .video-scene-editor select, .video-scene-editor textarea { max-width: 100%; min-width: 0; box-sizing: border-box; }
+@media (max-width: 480px) {
+  .video-scene-editor .video-timeline article { grid-template-columns: minmax(0, 1fr); }
+}
 .danger-link { justify-self: start; border: 0; background: transparent; color: #aa2630; cursor: pointer; }
 .video-cost { display: flex; align-items: center; gap: 14px; }
 .video-cost small { flex: 1; }

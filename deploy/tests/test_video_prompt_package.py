@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import copy
 import io
 import json
 import sys
@@ -32,6 +33,90 @@ class FakeForm:
 
 
 class VideoPromptPackageTests(unittest.TestCase):
+    def test_silent_scenes_have_independent_durations_and_motion(self) -> None:
+        project = copy.deepcopy(self.project)
+        project.update({"generationModel": "gemini_omni_flash", "durationSeconds": 10, "speechEnabled": False})
+        project["lines"] = [
+            {"presenterId": "kamran", "text": "", "shot": "selfie", "durationSeconds": 10, "description": "اول"},
+            {"presenterId": "kamran", "text": "", "shot": "medium", "durationSeconds": 5, "description": "دوم"},
+        ]
+        project["timeline"] = [{"sceneIndex": 1, "startSecond": 1, "endSecond": 5, "description": "حرکت دوم", "motionText": "فقط دوم"}]
+        project = gateway.validate_video_project(project)
+        self.assertFalse(project["lines"][0]["speechEnabled"])
+        self.assertEqual(gateway.video_project_view({"project": project})["estimatedSeconds"], 15)
+        first = gateway.video_generation_contract(project, project["lines"][0], 0, [])
+        second = gateway.video_generation_contract(project, project["lines"][1], 1, [])
+        self.assertIn("10-second", first)
+        self.assertIn("5-second", second)
+        self.assertNotIn("فقط دوم", first)
+        self.assertIn("فقط دوم", second)
+
+    def test_scene_speech_window_and_provider_duration_are_local(self) -> None:
+        project = copy.deepcopy(self.project)
+        project.update({"generationModel": "gemini_omni_flash", "durationSeconds": 10})
+        project["lines"][0].update({"durationSeconds": 6, "dialogueStartSecond": 1, "dialogueEndSecond": 4})
+        project = gateway.validate_video_project(project)
+        prompt = gateway.video_generation_contract(project, project["lines"][0], 0, [])
+        self.assertIn("Speech window: 1-4s", prompt)
+        self.assertEqual(gateway._VIDEO_PROMPT_RULES.provider_options(project, project["lines"][0])["seconds"], "6")
+        project["lines"][0]["dialogueEndSecond"] = 7
+        with self.assertRaises(gateway.ClientError):
+            gateway.validate_video_project(project)
+
+    def test_invalid_scene_duration_and_foreign_timeline_are_rejected(self) -> None:
+        for duration in (3, 10, 8.5, True):
+            project = copy.deepcopy(self.project)
+            project["lines"][0]["durationSeconds"] = duration
+            with self.subTest(duration=duration), self.assertRaises(gateway.ClientError):
+                gateway.validate_video_project(project)
+        project = copy.deepcopy(self.project)
+        project["timeline"] = [{"sceneIndex": 1, "startSecond": 0, "endSecond": 8}]
+        with self.assertRaises(gateway.ClientError):
+            gateway.validate_video_project(project)
+
+    def test_reopen_restores_all_saved_prompts_without_model_call(self) -> None:
+        project = copy.deepcopy(self.project)
+        project["lines"].append({"presenterId": "kamran", "text": "", "shot": "selfie"})
+        generated = {"segments": [{"index": 0, "prompt": "FIRST SCENE"}, {"index": 1, "prompt": "SECOND SCENE"}]}
+        with mock.patch.object(gateway, "call_video_prompt_gemini", return_value=generated):
+            gateway.build_video_prompt_package(gateway.validate_video_project(project), self.user)
+        with mock.patch.object(gateway, "call_video_prompt_gemini", side_effect=AssertionError("must not regenerate")):
+            view = gateway.manage_video_projects("/video-projects/get", FakeForm({"projectId": project["projectId"]}), self.user)
+        self.assertEqual(len(view["project"]["lines"]), 2)
+        self.assertEqual(len(view["promptPackage"]["segments"]), 2)
+        self.assertIn("FIRST SCENE", view["promptPackage"]["fullPrompt"])
+        self.assertIn("SECOND SCENE", view["promptPackage"]["fullPrompt"])
+        with self.assertRaises(gateway.ClientError):
+            gateway.manage_video_projects("/video-projects/get", FakeForm({"projectId": project["projectId"]}), {"id": "someone-else"})
+
+    def test_director_receives_only_scene_scoped_timing_and_copy(self) -> None:
+        project = copy.deepcopy(self.project)
+        project["lines"].append({"presenterId": "kamran", "text": "", "shot": "selfie"})
+        project["timeline"] = [{"sceneIndex": 1, "startSecond": 2, "endSecond": 5, "description": "حرکت دوم", "motionText": "دوم"}]
+        project = gateway.validate_video_project(project)
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = json.dumps({"choices": [{"message": {"content": '{"segments": []}'}}]}).encode()
+        with mock.patch.object(gateway, "AVALAI_API_KEY", "test-only"), mock.patch.object(gateway, "text_model_settings", return_value={"videoPromptModel": "gpt-6"}), mock.patch.object(gateway.urllib.request, "urlopen", return_value=response) as request:
+            gateway.call_video_prompt_gemini(project, [], [])
+        payload = json.loads(request.call_args.args[0].data)
+        director = json.loads(payload["messages"][1]["content"][0]["text"])
+        self.assertNotIn("lines", director["project"])
+        self.assertNotIn("timeline", director["project"])
+        self.assertFalse(director["segments"][1]["speechEnabled"])
+        self.assertEqual(director["segments"][0]["motionGraphics"], [])
+        self.assertEqual(director["segments"][1]["motionGraphics"][0]["text"], "دوم")
+        self.assertEqual(director["segments"][1]["timing"][0]["direction"], "حرکت دوم")
+
+    def test_legacy_paid_project_reopens_exact_segment_prompts(self) -> None:
+        project = gateway.validate_video_project(copy.deepcopy(self.project))
+        target = gateway.VIDEO_PROJECT_DIR / project["projectId"] / "project.json"
+        gateway.write_json_atomic(target, {"projectId": project["projectId"], "ownerId": str(self.user["id"]), "project": project, "segments": [{"index": 0, "prompt": "LEGACY EXACT", "negativePrompt": "NO DRIFT"}]})
+        with mock.patch.object(gateway, "call_video_prompt_gemini", side_effect=AssertionError("must not regenerate")):
+            view = gateway.manage_video_projects("/video-projects/get", FakeForm({"projectId": project["projectId"]}), self.user)
+        self.assertIn("LEGACY EXACT", view["promptPackage"]["fullPrompt"])
+        self.assertIn("NO DRIFT", view["promptPackage"]["fullPrompt"])
+
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory()
         data_dir = Path(self.temporary.name)
@@ -91,7 +176,8 @@ class VideoPromptPackageTests(unittest.TestCase):
         self.assertEqual(filenames, ["CHARACTER_KAMRAN_FLEXIBLE_IDENTITY_01.jpg", "LOCATION_NEWSROOM_FLEXIBLE_MASTER_01.png"])
         for filename in filenames:
             self.assertIn(filename, package["segments"][0]["prompt"])
-        self.assertIn("CREATE A VIDEO, NOT A STILL IMAGE", package["segments"][0]["prompt"])
+        self.assertIn("Veo 3.1", package["segments"][0]["prompt"])
+        self.assertNotIn("CREATE A VIDEO, NOT A STILL IMAGE", package["segments"][0]["prompt"])
         self.assertIn("1080x1920", package["segments"][0]["prompt"])
         self.assertEqual(package["project"]["projectId"], self.project["projectId"])
         archive_bytes, _ = gateway.video_prompt_bundle_for_user(FakeForm({"projectId": self.project["projectId"]}), self.user)

@@ -282,7 +282,7 @@ def recover_provider_id(safety_identifier: str) -> str:
 def submit_segment(record: dict, segment: dict) -> None:
     project = record["project"]
     line = project["lines"][int(segment["index"])]
-    options = prompt_module.provider_options(project)
+    options = prompt_module.provider_options(project, line)
     safety_id = f"kalam_{record['projectId']}_{segment['index']}"
     prompt = str(segment.get("prompt", "")).strip() or prompt_module.compile_segment(project, line, int(segment["index"]))
     negative = str(segment.get("negativePrompt", "")).strip()

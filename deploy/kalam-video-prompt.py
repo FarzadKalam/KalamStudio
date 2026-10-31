@@ -27,7 +27,24 @@ CAMERA_PROGRESSION = (
     "begin with foreground depth and arc gently into a clean composed hero angle",
 )
 
-def provider_options(project: dict) -> dict:
+SHOTS["selfie"] = "front-facing handheld selfie at arm length, natural eye-level perspective, subtle handheld motion and realistic facial proportions"
+
+
+def scene_project(project: dict, line: dict, index: int) -> dict:
+    """Resolve one scene for prompting and transport, with legacy defaults."""
+    duration = int(line.get("durationSeconds", project.get("durationSeconds", 8)) or 8)
+    speech = bool(project.get("speechEnabled", True)) and bool(line.get("speechEnabled", bool(str(line.get("text", "")).strip())))
+    timeline = [row for row in project.get("timeline", []) if isinstance(row, dict) and (row.get("sceneIndex") is None or row.get("sceneIndex") == index)]
+    return {**project, "durationSeconds": duration, "speechEnabled": speech, "timeline": timeline}
+
+
+def dialogue_window(line: dict, duration: int) -> str:
+    start = line.get("dialogueStartSecond", 0)
+    end = line.get("dialogueEndSecond", duration)
+    return f"Speech timing: {start}-{end}s within this scene; remain silent outside this window."
+
+
+def provider_options(project: dict, line: dict | None = None) -> dict:
     """One safe Veo request profile per Studio mode.
 
     Veo accepts 4, 6 or 8 seconds. Reference images are separately guarded
@@ -36,16 +53,17 @@ def provider_options(project: dict) -> dict:
     mode = str(project.get("qualityMode", "precise"))
     return {
         "model": VEO_MODELS.get(mode, VEO_MODELS["precise"]),
-        "seconds": str(project.get("durationSeconds") or 8),
+        "seconds": str((line or {}).get("durationSeconds", project.get("durationSeconds")) or 8),
         "size": ("720x1280" if project.get("canvas") == "portrait" else "1280x720") if project.get("resolution") == "720p" else ("1080x1920" if project.get("canvas") == "portrait" else "1920x1080"),
     }
 
 def compile_segment(project: dict, line: dict, index: int) -> str:
+    project = scene_project(project, line, index)
     presenter = PRESENTERS.get(line.get("presenterId"), line.get("presenterId", "presenter"))
     location = LOCATIONS.get(project.get("location", {}).get("id"), project.get("location", {}).get("id", "controlled interior"))
     shot = SHOTS.get(line.get("shot"), SHOTS["medium"])
     direction = DIRECTION_MODES.get(project.get("directionMode"), DIRECTION_MODES["news_bulletin"])
-    camera_progression = CAMERA_PROGRESSION[index % len(CAMERA_PROGRESSION)]
+    camera_progression = "subtle natural handheld reframing at arm length; no dolly or external camera" if line.get("shot") == "selfie" else CAMERA_PROGRESSION[index % len(CAMERA_PROGRESSION)]
     monitor = project.get("monitor", {}) if isinstance(project.get("monitor"), dict) else {}
     monitor_enabled = bool(monitor.get("enabled", monitor.get("mode") != "disabled"))
     monitor_mode = str(monitor.get("mode") or ("text" if str(project.get("monitorText", "")).strip() else "blank"))
@@ -99,12 +117,14 @@ def compile_segment(project: dict, line: dict, index: int) -> str:
         motion_copy.append(f"{row.get('startSecond', 0)}-{row.get('endSecond', duration)} seconds: render the exact Persian on-screen motion graphic copy «{str(row.get('motionText', '')).strip()}» as a {style}, in the {position}, with {animation}; make the kinetic typography genuinely creative and motivated by the scene using elegant timing, depth, accent colour, micro-parallax or a reveal synchronized to the action/camera when appropriate, never a generic sticker template. Keep it crisp, brief, readable on mobile and away from the presenter’s eyes, mouth and hands. It is editorial overlay text, not a subtitle.")
     speech_enabled = bool(project.get("speechEnabled", True))
     continuity = "Begin as a seamless continuation of CONTINUITY_PREVIOUS_LAST_FRAME.jpg (or CONTINUITY_PARENT_LAST_FRAME.jpg when supplied); preserve the same set, wardrobe, lighting direction, screen direction and ongoing audio bed before progressing naturally. " if index > 0 or project.get("continuation") else "Establish the set and identities clearly for following segments. "
-    return (f"CREATE A VIDEO, NOT A STILL IMAGE. Generate exactly one continuous {duration}-second {canvas}, 24fps Veo 3.1 segment with visible natural motion and motivated camera movement. Never return or describe a poster, photograph, storyboard, image sequence or static frame. "
+    return (f"A {duration}-second {canvas}, 24fps Veo 3.1 scene with natural motion and motivated camera movement. "
             f"Cinematic professional Persian-language presenter segment, {shot}; {direction}; {camera_progression}. "
             f"{continuity}"
             f"Presenter: {presenter}; lock the exact person identity, facial geometry, apparent age, natural skin texture, hairstyle and diagnostic features across all segments. Body pose, gaze, expression and hand gesture may change only as directed; wardrobe may change only when explicitly requested, but the person must never change.{character_direction}{overall_direction} "
             f"Location: {location}; {location_mode}. Natural controlled key light, realistic skin, restrained brand colours, clean composition, no oversized face, no fake logo or unreadable on-screen text.{cohost_instruction}{monitor_instruction} "
             + (f"The presenter says exactly in Persian: «{str(line.get('text', '')).strip()}». Use calm, precise Persian delivery. Audio: clean studio voice, natural room tone, and a {music}; keep the music character and loudness consistent with adjacent segments and always below speech. " if speech_enabled else f"No character may speak, narrate, lip-sync or mouth intelligible words. Audio is only natural room tone and a {music}; no voice or narration. ")
+            + (dialogue_window(line, duration) + " " if speech_enabled else "")
+            + (f"Scene action: {str(line.get('description', '')).strip()}. " if line.get("description") else "")
             + (f"Timing plan: {timing}. " if timing else "")
             + (f"MOTION GRAPHICS CONTRACT: {' '.join(motion_copy)} " if motion_copy else "")
             + "Present it as a verified, formal public-information statement, with a composed and credible tone. "

@@ -9819,6 +9819,24 @@ def manage_video_assets(form: cgi.FieldStorage, user: dict) -> dict:
     return {"version": registry.get("version", 1), "entities": VIDEO_ASSET_ENTITIES, "profileOptions": VIDEO_ASSET_PROFILE_OPTIONS, "assets": [video_asset_view(item) for item in assets]}
 
 
+_VIDEO_PROMPT_RULES = None
+
+
+def video_scene_project(project: dict, line: dict, index: int) -> dict:
+    global _VIDEO_PROMPT_RULES
+    if _VIDEO_PROMPT_RULES is None:
+        path = Path(__file__).with_name("video_prompt.py")
+        if not path.is_file():
+            path = Path(__file__).with_name("kalam-video-prompt.py")
+        spec = importlib.util.spec_from_file_location("kalam_video_scene_rules", path)
+        if not spec or not spec.loader:
+            raise RuntimeError("video scene rules unavailable")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _VIDEO_PROMPT_RULES = module
+    return _VIDEO_PROMPT_RULES.scene_project(project, line, index)
+
+
 def video_project_hash(project: dict) -> str:
     canonical = json.dumps(project, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -9987,16 +10005,12 @@ def video_motion_text_contract(timeline: list[dict], duration: int) -> str:
 
 
 def video_generation_contract(project: dict, line: dict, index: int, filenames: list[str]) -> str:
-    """Non-negotiable provider-facing prefix for every generated prompt.
-
-    LLM-authored prose sometimes describes a beautiful *image* without saying
-    that the target is moving video.  This deterministic contract carries the
-    transport facts (duration, dimensions, model and continuity frame) that
-    must not be left to an editorial model.
-    """
-    target = "Gemini Omni Flash video" if project.get("generationModel") == "gemini_omni_flash" else "Veo 3.1 video"
+    """Concise, scene-scoped transport facts and user-authored constraints."""
+    project = video_scene_project(project, line, index)
+    target = "Gemini Omni Flash" if project.get("generationModel") == "gemini_omni_flash" else "Veo 3.1"
     resolution = str(project.get("resolution") or "1080p")
-    dimensions = "720x1280" if resolution == "720p" and project.get("canvas") == "portrait" else "1280x720" if resolution == "720p" else "1080x1920" if project.get("canvas") == "portrait" else "1920x1080"
+    width, height = {"360p": (640, 360), "720p": (1280, 720), "1080p": (1920, 1080), "4k": (3840, 2160)}[resolution]
+    dimensions = f"{height}x{width}" if project.get("canvas") == "portrait" else f"{width}x{height}"
     canvas = f"vertical {dimensions} (9:16)" if project.get("canvas") == "portrait" else f"horizontal {dimensions} (16:9)"
     duration = int(project.get("durationSeconds") or 8)
     speech = bool(project.get("speechEnabled", True))
@@ -10011,10 +10025,12 @@ def video_generation_contract(project: dict, line: dict, index: int, filenames: 
     parent = " A parent final-frame reference may be supplied as CONTINUITY_PARENT_LAST_FRAME.jpg; match it before the first movement." if index == 0 and project.get("continuation") else ""
     references = ", ".join(filenames) if filenames else "no named still references"
     return (
-        f"CREATE A VIDEO, NOT A STILL IMAGE. Generate exactly one continuous {duration}-second {canvas}, 24fps {target} segment (segment {index + 1}). "
-        f"It must contain visible natural motion and motivated camera movement; do not return or describe a poster, photograph, storyboard, image sequence or static frame. "
+        f"{target}: a {duration}-second {canvas} scene (segment {index + 1}) with natural motion. "
         f"Required continuity: {continuity}{parent} Reference asset handles for this segment: {references}. "
+        + ("Front-facing handheld selfie at arm length, natural facial proportions, subtle handheld movement; no external dolly camera. " if line.get("shot") == "selfie" else "")
         + (f"The presenter must say exactly this Persian dialogue with no extra spoken words: «{str(line.get('text', '')).strip()}»." if speech else "No character may speak, narrate, lip-sync, mouth words, or generate intelligible speech; use only natural ambience and the approved music bed.")
+        + (f" Speech window: {line.get('dialogueStartSecond', 0)}-{line.get('dialogueEndSecond', duration)}s; remain silent outside this window." if speech else "")
+        + (f" Scene action: {str(line.get('description', '')).strip()}." if line.get("description") else "")
         + (f" Timing plan: {beats}." if beats else "")
         + motion_text
     )
@@ -10064,13 +10080,19 @@ def call_video_prompt_gemini(project: dict, manifest: list[dict], assets: list[d
     manifest_by_id = {str(item["referenceId"]): item for item in manifest}
     segment_contracts = []
     for index, line in enumerate(project.get("lines", [])):
+        scene = video_scene_project(project, line, index)
         reference_ids = video_segment_reference_ids(project, line, manifest, index)
         segment_contracts.append({
             "index": index,
-            "durationSeconds": int(project.get("durationSeconds") or 8),
+            "durationSeconds": scene["durationSeconds"],
+            "action": str(line.get("description", "")),
+            "speechEnabled": scene["speechEnabled"],
+            "dialogueStartSecond": line.get("dialogueStartSecond", 0),
+            "dialogueEndSecond": line.get("dialogueEndSecond", scene["durationSeconds"]),
             "presenterId": line.get("presenterId"),
             "requestedShot": line.get("shot"),
-            "lockedPersianDialogue": str(line.get("text", "")) if project.get("speechEnabled", True) else "",
+            "lockedPersianDialogue": str(line.get("text", "")) if scene["speechEnabled"] else "",
+            "timing": [{"startSecond": item["startSecond"], "endSecond": item["endSecond"], "direction": item.get("description", "")} for item in scene.get("timeline", [])],
             "referenceFiles": [manifest_by_id[item]["downloadName"] for item in reference_ids],
             "motionGraphics": [
                 {
@@ -10081,7 +10103,7 @@ def call_video_prompt_gemini(project: dict, manifest: list[dict], assets: list[d
                     "position": str(item.get("motionPosition", "bottom")),
                     "animation": str(item.get("motionAnimation", "fade")),
                 }
-                for item in project.get("timeline", [])
+                for item in scene.get("timeline", [])
                 if isinstance(item, dict) and str(item.get("motionText", "")).strip()
             ],
         })
@@ -10089,12 +10111,12 @@ def call_video_prompt_gemini(project: dict, manifest: list[dict], assets: list[d
     target_instruction = (
         "Gemini Omni Flash: optimize for multimodal reasoning, strong character/environment consistency, perspective-aware camera changes and future conversational editing."
         if target_model == "gemini_omni_flash"
-        else f"Veo 3.1: optimize for one coherent {int(project.get('durationSeconds') or 8)}-second generation, no impossible multi-cut direction and no more than three asset references."
+        else "Veo 3.1: respect each segment's own duration, use coherent camera direction and no more than three asset references."
     )
     system_text = f"""You are a senior film director, cinematographer, continuity supervisor and prompt engineer. Write one production-ready English prompt per segment specifically for {target_instruction} Preserve every locked Persian dialogue verbatim. Follow Google's video-prompt anatomy: subject and identity, action and blocking, environment, visual style, camera framing/angle/movement/lens, composition and depth, lighting/colour/ambiance, temporal beats, synchronized dialogue/sound/music, continuity, and explicit exclusions. Lock the exact person identity, facial geometry, apparent age, natural skin texture, hairstyle and diagnostic traits to the named character references; pose, gaze, expression, hands and wardrobe may change only when requested, but the person must never change. Use a professional full-frame cinema-camera look, correct perspective and body scale, a motivated prime lens and controlled optical depth of field: eyes and presenter plane sharp, distant layers gently and naturally defocused. Match key/fill/rim/contact shadows and skin colour to the real environment and time of day. Direct purposeful camera and angle changes across segments; do not repeat the same framing mechanically. Never invent a logo, person, fact, subtitle or on-screen copy; render only the exact motionGraphics copy explicitly supplied for that segment. Treat filenames as immutable asset handles and mention every supplied reference filename exactly in the prompt that uses it. Return JSON only."""
     user_payload = {
         "task": f"Create a {target_model} prompt for every output segment. Each prompt must remain coherent when the segments are joined and must also be runnable alone with exactly its listed reference files.",
-        "project": project,
+        "project": {key: value for key, value in project.items() if key not in {"lines", "timeline", "durationSeconds"}},
         "directionMode": {
             "news_bulletin": "credible formal news bulletin; measured pacing and restrained motivated camera changes",
             "explainer": "clear visual explainer; conversational blocking, purposeful reframing and room for comprehensible gestures",
@@ -10111,6 +10133,7 @@ def call_video_prompt_gemini(project: dict, manifest: list[dict], assets: list[d
             "podium": "presenter behind an elegant podium",
             "microphone": "presenter at a professional microphone",
             "reference": "composition guided by the supplied reference images",
+            "selfie": "front-facing handheld selfie at arm length; natural perspective, subtle handheld movement and realistic face proportions",
         },
         "referenceManifest": manifest,
         "segments": segment_contracts,
@@ -10124,12 +10147,13 @@ def call_video_prompt_gemini(project: dict, manifest: list[dict], assets: list[d
             "Use all and only referenceFiles assigned to that segment, spelling each filename exactly.",
             "Use every reference according to its modular profile: character identity references control identity only; location profiles control set geometry, aspect composition, presenter capacity, framing and copy-space intent.",
             "A MONITOR reference controls only pixels/content inside physical display surfaces. Detect every real screen plane by bezel, four corners, reflections, perspective and foreground occlusions; use that quadrilateral as a strict mask, preserve bezel/glass/glare/occlusions, and never invent a display or spill content onto walls, desks or the set. In preserve mode keep internal pixels, Persian copy, logos, people and composition faithful.",
-            "Describe motivated camera transitions and varied angles without impossible cuts inside eight seconds.",
+            "Use each segment's own durationSeconds and local dialogue/motion timing. Silent segments need no dialogue. Describe motivated camera work without excessive constraints or repeatedly insisting that the output is video.",
+            "The segments array is the sole source for scene actions, timing, dialogue and motion copy. Never carry scene-specific instructions or text into another scene. A selfie shot uses an arm-length front-facing handheld perspective, overriding the default cinema-camera setup without distorting identity.",
             "Preserve facial anatomy, age, skin texture, body proportions, wardrobe, set geometry, lighting direction and screen direction across segments.",
             "Keep Persian monitor text exact when present. Render only the exact motionGraphics text supplied for the matching time range; never paraphrase, translate, add subtitles or invent lower thirds.",
             "When speech is enabled, voice must be clean Persian, lip-synced, with music below speech and no narration by an unseen speaker. When disabled, use only natural ambience and restrained music.",
             "For Gemini Omni, describe perspective-aware refinements and rich multimodal identity constraints while producing one polished segment rather than a storyboard explanation.",
-            f"For Veo 3.1, describe one physically achievable continuous shot or one subtle motivated transition within {int(project.get('durationSeconds') or 8)} seconds, never a rapid montage.",
+            "For Veo 3.1, respect each segment's duration and reference limits. For Omni, support 3-10 seconds per segment. Keep directions concise and model-specific.",
         ],
     }
     content: list[dict] = [{"type": "text", "text": json.dumps(user_payload, ensure_ascii=False)}]
@@ -10210,6 +10234,7 @@ def build_video_prompt_package(project: dict, user: dict) -> dict:
             negative = "identity drift, facial distortion, duplicate people, jump cuts, random text, subtitles, fake logos, unreadable Persian, warped hands, lip-sync errors, abrupt lighting changes, camera jitter, music overpowering speech"
         segments.append({
             "index": index,
+            "durationSeconds": video_scene_project(project, line, index)["durationSeconds"],
             "title": f"بخش {index + 1} · {VIDEO_ASSET_ENTITIES['presenter'].get(line.get('presenterId'), line.get('presenterId'))}",
             "prompt": prompt,
             "negativePrompt": negative,
@@ -10312,6 +10337,14 @@ def video_prompt_bundle_for_user(form: cgi.FieldStorage, user: dict) -> tuple[by
 
 
 def validate_video_project(project: object) -> dict:
+    def integer_seconds(value: object) -> int:
+        if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+            raise ValueError("not an integer second")
+        parsed = int(value)
+        if float(value) != parsed:
+            raise ValueError("fractional second")
+        return parsed
+
     if not isinstance(project, dict):
         raise ClientError("پروژهٔ ویدیو معتبر نیست.")
     project_id = str(project.get("projectId", ""))
@@ -10332,17 +10365,17 @@ def validate_video_project(project: object) -> dict:
     if project.get("canvas") not in {"landscape", "portrait"}:
         raise ClientError("ابعاد ویدیو معتبر نیست.")
     try:
-        duration_seconds = int(project.get("durationSeconds", 8) or 8)
+        duration_seconds = integer_seconds(project.get("durationSeconds", 8))
     except (TypeError, ValueError) as exc:
         raise ClientError("مدت ویدیو معتبر نیست.") from exc
-    if duration_seconds not in {4, 6, 8}:
-        raise ClientError("مدت هر سکانس Veo باید ۴، ۶ یا ۸ ثانیه باشد.")
+    allowed_durations = set(range(3, 11)) if project["generationModel"] == "gemini_omni_flash" else {4, 6, 8}
+    if duration_seconds not in allowed_durations:
+        raise ClientError("مدت Omni باید بین ۳ تا ۱۰ و مدت Veo باید ۴، ۶ یا ۸ ثانیه باشد.")
     project["durationSeconds"] = duration_seconds
     resolution = str(project.get("resolution") or "1080p")
-    if resolution not in {"720p", "1080p"}:
-        raise ClientError("کیفیت خروجی Veo باید ۷۲۰p یا ۱۰۸۰p باشد.")
-    if project.get("generationModel", "veo_3_1") == "veo_3_1" and resolution == "1080p" and duration_seconds != 8:
-        raise ClientError("در Veo 3.1، کیفیت ۱۰۸۰p فقط برای خروجی ۸ ثانیه‌ای پشتیبانی می‌شود.")
+    allowed_resolutions = {"360p", "720p", "1080p", "4k"} if project["generationModel"] == "gemini_omni_flash" else {"720p", "1080p"}
+    if resolution not in allowed_resolutions:
+        raise ClientError("کیفیت خروجی برای مدل انتخاب‌شده معتبر نیست.")
     project["resolution"] = resolution
     project["speechEnabled"] = bool(project.get("speechEnabled", True))
     presenter_ids = project.get("presenterIds")
@@ -10442,27 +10475,50 @@ def validate_video_project(project: object) -> dict:
             f"مدل انتخاب‌شده حداکثر {fa_number(model_reference_limit)} تصویر مرجع در هر خروجی می‌پذیرد؛ "
             f"مرجع‌های خودکار/دستی و تصاویر آپلودی در مجموع {fa_number(reference_count)} تصویر شده‌اند."
         )
-    if project["generationModel"] == "veo_3_1" and reference_count and duration_seconds != 8:
-        raise ClientError("در Veo 3.1، ساخت با تصویر مرجع فقط برای خروجی ۸ ثانیه‌ای پشتیبانی می‌شود.")
     lines = project.get("lines")
-    allowed_shots = {"formal", "semi_formal", "close_up", "medium", "full", "moving", "podium", "microphone", "reference"}
+    allowed_shots = {"formal", "semi_formal", "close_up", "medium", "full", "moving", "podium", "microphone", "reference", "selfie"}
     if not isinstance(lines, list) or not 1 <= len(lines) <= 20:
         raise ClientError("برای ویدیو بین یک تا بیست خط اجرا وارد کنید.")
-    for line in lines:
+    for scene_index, line in enumerate(lines):
         if not isinstance(line, dict) or line.get("presenterId") not in presenter_ids or line.get("shot") not in allowed_shots:
             raise ClientError("مجری، متن یا زاویهٔ یکی از خط‌های اجرا معتبر نیست.")
         line["text"] = str(line.get("text", "")).strip()[:420]
-        if project["speechEnabled"] and not line["text"]:
+        try:
+            scene_duration = integer_seconds(line.get("durationSeconds", duration_seconds))
+        except (TypeError, ValueError) as exc:
+            raise ClientError("مدت سکانس معتبر نیست.") from exc
+        if scene_duration not in allowed_durations:
+            raise ClientError(f"مدت سکانس {scene_index + 1} برای مدل انتخاب‌شده معتبر نیست.")
+        if project["generationModel"] == "veo_3_1" and scene_duration != 8 and (reference_count or resolution == "1080p" or scene_index > 0 or project.get("continuation")):
+            raise ClientError(f"سکانس {scene_index + 1}: در Veo با مرجع، تداوم یا ۱۰۸۰p، مدت باید ۸ ثانیه باشد.")
+        line["durationSeconds"] = scene_duration
+        line["description"] = str(line.get("description", "")).strip()
+        if len(line["description"]) > 1200:
+            raise ClientError("توضیح سکانس حداکثر ۱۲۰۰ نویسه است.")
+        line["speechEnabled"] = project["speechEnabled"] and bool(line.get("speechEnabled", bool(line["text"])))
+        try:
+            speech_start = integer_seconds(line.get("dialogueStartSecond", 0))
+            speech_end = integer_seconds(line.get("dialogueEndSecond", scene_duration))
+        except (TypeError, ValueError) as exc:
+            raise ClientError("بازهٔ گفت‌وگوی سکانس معتبر نیست.") from exc
+        if not 0 <= speech_start < speech_end <= scene_duration:
+            raise ClientError(f"بازهٔ گفت‌وگوی سکانس {scene_index + 1} باید داخل همان سکانس باشد.")
+        line.update({"dialogueStartSecond": speech_start, "dialogueEndSecond": speech_end})
+        if line["speechEnabled"] and not line["text"]:
             raise ClientError("وقتی گفت‌وگوی کاراکتر فعال است، متن هر سکانس را کامل کنید.")
     raw_timeline = project.get("timeline", [])
-    if not isinstance(raw_timeline, list) or len(raw_timeline) > duration_seconds:
+    if not isinstance(raw_timeline, list) or len(raw_timeline) > sum(line["durationSeconds"] for line in lines):
         raise ClientError("تعداد بازه‌های زمان‌بندی پیشرفته معتبر نیست.")
     timeline: list[dict] = []
     for raw in raw_timeline:
         if not isinstance(raw, dict):
             raise ClientError("یکی از بازه‌های زمان‌بندی معتبر نیست.")
+        scene_index = raw.get("sceneIndex")
+        if scene_index is not None and (type(scene_index) is not int or not 0 <= scene_index < len(lines)):
+            raise ClientError("سکانس مربوط به بازهٔ موشن‌گرافی معتبر نیست.")
+        timeline_duration = lines[scene_index]["durationSeconds"] if scene_index is not None else min(line["durationSeconds"] for line in lines)
         try:
-            start_second, end_second = int(raw.get("startSecond")), int(raw.get("endSecond"))
+            start_second, end_second = integer_seconds(raw.get("startSecond")), integer_seconds(raw.get("endSecond"))
         except (TypeError, ValueError) as exc:
             raise ClientError("ثانیه‌های بازهٔ ویدیو معتبر نیستند.") from exc
         description = str(raw.get("description", "")).strip()
@@ -10472,16 +10528,16 @@ def validate_video_project(project: object) -> dict:
         motion_animation = str(raw.get("motionAnimation", "fade"))
         if motion_style not in VIDEO_MOTION_TEXT_STYLES or motion_position not in VIDEO_MOTION_TEXT_POSITIONS or motion_animation not in VIDEO_MOTION_TEXT_ANIMATIONS:
             raise ClientError("تنظیمات متن موشن‌گرافی معتبر نیست.")
-        if not 0 <= start_second < end_second <= duration_seconds or len(description) > 600 or len(motion_text) > 120:
+        if not 0 <= start_second < end_second <= timeline_duration or len(description) > 600 or len(motion_text) > 120:
             raise ClientError("بازه یا متن تنظیمات پیشرفتهٔ ویدیو معتبر نیست.")
-        timeline.append({"startSecond": start_second, "endSecond": end_second, "description": description, "motionText": motion_text, "motionStyle": motion_style, "motionPosition": motion_position, "motionAnimation": motion_animation})
+        timeline.append({"sceneIndex": scene_index, "startSecond": start_second, "endSecond": end_second, "description": description, "motionText": motion_text, "motionStyle": motion_style, "motionPosition": motion_position, "motionAnimation": motion_animation})
     project["timeline"] = timeline
     return project
 
 
 def video_project_view(record: dict) -> dict:
     project = record.get("project", {})
-    seconds = len(project.get("lines", [])) * int(project.get("durationSeconds", 8) or 8)
+    seconds = sum(int(line.get("durationSeconds", project.get("durationSeconds", 8)) or 8) for line in project.get("lines", []))
     return {**record, "estimatedSeconds": seconds, "estimatedCostUsd": round(seconds * (0.15 if project.get("qualityMode") == "fast" else 0.40), 2)}
 
 
@@ -10770,6 +10826,21 @@ def manage_video_projects(path: str, form: cgi.FieldStorage, user: dict):
                 continue
         return {"projects": sorted(items, key=lambda item: item.get("createdAt", 0), reverse=True)[:50]}
     record = video_project_for_user(form.getfirst("projectId", ""), user)
+    if path == "/video-projects/get":
+        view = video_project_view(record)
+        if video_prompt_path(record["projectId"]).is_file():
+            view["promptPackage"] = video_prompt_view(video_prompt_for_user(record["projectId"], user))
+        elif any(segment.get("prompt") for segment in record.get("segments", [])):
+            # Older paid projects kept their exact submitted prompts in the
+            # segments. Reopen these verbatim; never regenerate on a read.
+            view["promptPackage"] = video_prompt_view({
+                "promptId": record.get("promptId", ""), "projectId": record["projectId"],
+                "targetModel": record.get("project", {}).get("generationModel", "veo_3_1"),
+                "model": record.get("promptModel", ""), "generatedAt": record.get("createdAt", 0),
+                "projectSummary": "", "directorialStrategy": "", "references": [],
+                "segments": [{**segment, "title": f"سکانس {int(segment.get('index', 0)) + 1}", "referenceIds": [], "referenceFiles": segment.get("referenceFiles", [])} for segment in record.get("segments", [])],
+            })
+        return view
     if path == "/video-projects/retry":
         if record.get("state") not in {"failed", "cancelled"}:
             raise ClientError("فقط پروژهٔ ناموفق یا لغوشده قابل تلاش مجدد است.", HTTPStatus.CONFLICT)
