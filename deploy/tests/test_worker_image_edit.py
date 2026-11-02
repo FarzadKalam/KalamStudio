@@ -102,6 +102,22 @@ class WorkerImageEditTests(unittest.TestCase):
             self.assertIn(f"y >= {minimum}", prompt)
             self.assertNotIn("۷۶۸×۱۳۷۶", prompt)
 
+    def test_news_palette_is_scene_led_not_mandatory_brand_decoration(self):
+        for canvas in ("story_1080x1920", "post_1080x1350"):
+            for logo in ("system_header", "floating_profile", "none"):
+                with self.subTest(canvas=canvas, logo=logo):
+                    worker, record, _ = self.news_prompt(canvas=canvas, logo=logo)
+                    worker.app.image_style_prompt = lambda: "سبک عمومی: رنگ برند در طراحی به کار برود."
+                    prompt = worker.render_prompt(record)
+                    self.assertIn("رنگ رسانه الزام طراحی نیست", prompt)
+                    self.assertIn("استفاده‌نکردن از رنگ لوگو کاملاً مجاز است", prompt)
+                    self.assertIn("موج سینوسیِ تزئینی", prompt)
+                    self.assertGreater(prompt.index("استقلال پالت"), prompt.index("سبک عمومی"))
+                    self.assertNotIn("یک رنگ تأکیدی از هویت رسانه", prompt)
+                    self.assertNotIn("رنگ تیتر را آزادانه بر اساس تم رسانه", prompt)
+                    self.assertIn("دقیقاً سه واترمارک", prompt)
+        self.assertIn("نقش‌ها و فرم‌های داخل پروفایل فقط داخل همان نشان", worker.floating_profile_prompt())
+
     def test_preserved_reference_and_title_only_keep_their_own_contracts(self):
         _, _, prompt = self.news_prompt(mode="preserve")
         self.assertIn("تمام پیکسل‌ها", prompt)

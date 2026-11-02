@@ -10,7 +10,7 @@ The renderer, not the editorial/news-writing models, owns these rules. `render_p
 
 ## Current modular contract
 
-- News art direction: magazine-cover hierarchy, topic-specific composition, purposeful glass surfaces, visual depth, restrained brand accents, no mandatory yellow headline. Cards require real active content; empty/video areas and reference fidelity remain locked.
+- News art direction: magazine-cover hierarchy, topic-specific composition, purposeful glass surfaces and visual depth. Palette follows the photo/topic; brand accents are optional, not required. A scoped palette module overrides generic brand-colour advice and prevents automatic decorative waves, curved ribbons and corporate border templates. Profile artwork controls the badge only, not background motifs. Cards require real active content; empty/video areas and reference fidelity remain locked.
 - Identity and watermark are separate: system header reserves its actual safe area; floating/no-profile uses the full canvas. News has three low-contrast scattered Latin media-name watermarks in every identity mode, not an extra fixed corner signature. Stickers remain excluded.
 - Geometry lives only in the active worker module, not the editable news templates. Flare uses 1152×2048 / 1280×1600; safe text starts at 363 / 403 respectively for a 340px masthead at the editorial target size.
 - Typography explicitly checks Persian glyph shape, joins, dot count/placement, spacing and sharp edges without modifying approved copy. This is a model instruction, not OCR validation or a guarantee that the image model cannot misspell.
