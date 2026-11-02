@@ -59,6 +59,64 @@ class FakeResponse:
 
 
 class WorkerImageEditTests(unittest.TestCase):
+    def news_prompt(self, *, canvas="story_1080x1920", logo="floating_profile", slide=0, mode="generate", engine="gpt-image-2.5-flare", output="title_photo"):
+        worker = load_worker()
+        prompt_dir = WORKER_PATH.parent / "prompts"
+        worker.app.image_base_prompt = lambda: (prompt_dir / "image-base.production.fa.txt").read_text(encoding="utf-8")
+        worker.app.image_non_news_prompt = lambda: "طرح مستقل"
+        worker.app.image_style_prompt = lambda: "گرید و عمق حرفه‌ای"
+        worker.app.image_template_prompt = lambda template: (prompt_dir / f"{template}.master.fa.txt").read_text(encoding="utf-8")
+        record = {"requestId": "render-style-regression", "request": {
+            "brand": "kalametaze", "content": {"title": "پژوهش تازه؛ افزایش کیفیت زندگی", "subtitle": "گزارش محلی", "source": "تحریریه"},
+            "format": {"family": "news", "template": "news_post" if canvas == "post_1080x1350" else "news_story", "canvas": canvas, "logoBehavior": logo, "slideMode": "carousel" if slide else "single", "slideCount": 3 if slide else 1, "slideIndex": slide or 1, "news": {"layout": "center", "outputKind": output}},
+            "image": {"mode": mode, "engine": engine},
+        }}
+        if slide > 1:
+            record["uploadedImages"] = [{"role": "series_previous_slide", "filename": "previous.png"}]
+        return worker, record, worker.render_prompt(record)
+
+    def test_all_news_outputs_share_magazine_glass_glyph_and_scattered_watermark_direction(self):
+        for canvas in ("story_1080x1920", "post_1080x1350"):
+            for slide in (0, 1, 2):
+                for logo in ("system_header", "floating_profile", "none"):
+                    with self.subTest(canvas=canvas, slide=slide, logo=logo):
+                        _, _, prompt = self.news_prompt(canvas=canvas, slide=slide, logo=logo)
+                        self.assertIn("جهت هنری رندر خبری — جلد مجلهٔ ممتاز", prompt)
+                        self.assertIn("کارت‌های شیشه‌ای ممتاز", prompt)
+                        self.assertIn("کنترل رندر حروف فارسی", prompt)
+                        self.assertIn("تعداد و جای دقیق نقطه", prompt)
+                        self.assertEqual(prompt.count("واترمارک پراکندهٔ رسانه، مستقل"), 1)
+                        self.assertIn("دقیقاً سه واترمارک", prompt)
+                        self.assertIn("@kalametaze.ir", prompt)
+                        if logo != "system_header":
+                            self.assertNotIn("y >=", prompt)
+                            self.assertNotIn("y_min", prompt)
+                            self.assertNotIn("واترمارک رسانه‌ای هم نساز", prompt)
+                        if slide > 1:
+                            self.assertIn("REFERENCE PRIORITY AND SERIES ISOLATION", prompt)
+
+    def test_system_header_geometry_matches_native_flare_raster(self):
+        for canvas, expected, minimum in (("story_1080x1920", "۱۱۵۲×۲۰۴۸", "۳۶۳"), ("post_1080x1350", "۱۲۸۰×۱۶۰۰", "۴۰۳")):
+            _, _, prompt = self.news_prompt(canvas=canvas, logo="system_header")
+            self.assertIn(expected, prompt)
+            self.assertIn(f"y >= {minimum}", prompt)
+            self.assertNotIn("۷۶۸×۱۳۷۶", prompt)
+
+    def test_preserved_reference_and_title_only_keep_their_own_contracts(self):
+        _, _, prompt = self.news_prompt(mode="preserve")
+        self.assertIn("تمام پیکسل‌ها", prompt)
+        _, _, prompt = self.news_prompt(output="title_only")
+        self.assertIn("فقط تیتر؛ هیچ عکس خبری", prompt)
+        self.assertNotIn("### نحوهٔ استفاده از عکس خبر", prompt)
+        self.assertIn("روی بافت گرافیکیِ بدنه", prompt)
+
+    def test_news_does_not_get_a_fourth_fixed_corner_watermark(self):
+        worker, record, _ = self.news_prompt()
+        encoded = worker.BytesIO()
+        worker.Image.new("RGB", (400, 500), (20, 40, 60)).save(encoded, format="PNG")
+        with mock.patch.object(worker.ImageDraw, "Draw", side_effect=AssertionError("extra corner watermark forbidden")):
+            worker.apply_exact_header(record, encoded.getvalue())
+
     def test_floating_profile_is_model_authored_not_a_pasted_badge(self) -> None:
         from io import BytesIO
         from PIL import Image

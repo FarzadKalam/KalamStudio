@@ -454,13 +454,13 @@ class GatewayRegressionTests(unittest.TestCase):
         self.assertIn("f/1.8 تا f/2.8", prompt)
         self.assertIn("bokeh واقعی", prompt)
 
-    def test_editorial_safe_area_uses_real_gemini_raster_coordinates(self) -> None:
+    def test_news_templates_delegate_geometry_to_active_render_module(self) -> None:
         story = gateway.DEFAULT_TEMPLATE_PROMPTS["news_story"]
         post = gateway.DEFAULT_TEMPLATE_PROMPTS["news_post"]
-        self.assertIn("۷۶۸×۱۳۷۶", story)
-        self.assertIn("y_min >= 244", story)
-        self.assertIn("۹۲۸×۱۱۵۲", post)
-        self.assertIn("y_min >= 292", post)
+        for brief in (story, post):
+            self.assertNotIn("y_min", brief)
+            self.assertIn("ماژول هندسی", brief)
+            self.assertIn("شیشه", brief)
         self.assertIn("همهٔ اسلایدهای کاروسل", post)
 
     def test_channel_caption_keeps_one_intentional_blank_line_without_tripling_it(self) -> None:
