@@ -1,5 +1,11 @@
 # Video Studio timing contract
 
+## Prompt wording and attachment handles (2026-11-03)
+
+Generated style directions describe camera, performance, setting and audio without automatically asserting a news bulletin, official statement or verified facts. Real user dialogue, event details and asset metadata are not scrubbed, disguised or relabeled as fiction. Provider acceptance is not guaranteed and no safety bypass is implemented.
+
+New attachment handles use role/aspect/profile/ordinal rather than business entity names. Ordinals are unique per asset kind across entities; the manifest retains original filenames, entity IDs and exact asset mappings. Old saved prompt packages retain their original names so existing downloads and exact submitted prompts remain consistent.
+
 Verified against official documentation on 2026-11-01:
 
 - Veo 3.1: 4, 6 or 8 seconds. Reference images and 1080p require 8 seconds. Studio's subsequent scenes attach continuity references and therefore also require 8 seconds. Existing stable `*-generate-001` provider model IDs are retained.

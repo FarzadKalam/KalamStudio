@@ -9842,14 +9842,15 @@ def video_prompt_path(project_id: str) -> Path:
 
 def video_reference_download_name(asset: dict, ordinal: int) -> str:
     prefix = "CHARACTER" if asset.get("kind") == "presenter" else "MONITOR" if asset.get("kind") == "monitor" else "LOCATION"
-    entity = re.sub(r"[^A-Za-z0-9]+", "_", str(asset.get("entityId", "REFERENCE"))).strip("_").upper() or "REFERENCE"
     suffix = Path(str(asset.get("storedFilename") or asset.get("filename") or "reference.jpg")).suffix.lower()
     if suffix not in {".jpg", ".jpeg", ".png", ".webp"}:
         suffix = ".jpg"
     profile = video_asset_profile(asset)
     role = re.sub(r"[^A-Za-z0-9]+", "_", profile["role"]).strip("_").upper()
     aspect = re.sub(r"[^A-Za-z0-9]+", "_", profile["aspectRatio"]).strip("_").upper()
-    return f"{prefix}_{entity}_{aspect}_{role}_{ordinal:02d}{suffix}"
+    # Portable role-based handles; descriptive entity names and original
+    # filenames stay in the manifest, not in machine attachment handles.
+    return f"{prefix}_{aspect}_{role}_{ordinal:02d}{suffix}"
 
 
 def selected_video_reference_assets(project: dict, user: dict) -> list[dict]:
@@ -9917,10 +9918,10 @@ def selected_video_reference_assets(project: dict, user: dict) -> list[dict]:
 
 def video_reference_manifest(project: dict, user: dict) -> list[dict]:
     assets = selected_video_reference_assets(project, user)
-    counters: dict[tuple[str, str], int] = {}
+    counters: dict[str, int] = {}
     manifest = []
     for asset in assets:
-        key = (str(asset.get("kind")), str(asset.get("entityId")))
+        key = str(asset.get("kind"))
         counters[key] = counters.get(key, 0) + 1
         manifest.append({
             "referenceId": str(asset.get("assetId")),
@@ -9961,7 +9962,7 @@ def video_segment_reference_ids(project: dict, line: dict, manifest: list[dict],
 
 
 VIDEO_MOTION_TEXT_STYLES = {
-    "headline": "short editorial headline",
+    "headline": "short on-screen title",
     "lower_third": "clean lower-third name or context strap",
     "stat": "large data point or statistic",
     "label": "small corner label",
@@ -9994,7 +9995,7 @@ def video_motion_text_contract(timeline: list[dict], duration: int) -> str:
         style = VIDEO_MOTION_TEXT_STYLES.get(str(item.get("motionStyle", "headline")), VIDEO_MOTION_TEXT_STYLES["headline"])
         position = VIDEO_MOTION_TEXT_POSITIONS.get(str(item.get("motionPosition", "bottom")), VIDEO_MOTION_TEXT_POSITIONS["bottom"])
         animation = VIDEO_MOTION_TEXT_ANIMATIONS.get(str(item.get("motionAnimation", "fade")), VIDEO_MOTION_TEXT_ANIMATIONS["fade"])
-        entries.append(f"{start}-{end}s: render the exact Persian on-screen motion graphic copy «{text}» as a {style}, placed in the {position}, with {animation}. Make the kinetic typography genuinely creative and motivated by the scene: use elegant timing, depth, shape, accent colour, micro-parallax or a reveal synchronized to the action/camera when appropriate; never use a generic sticker template. It is intentional editorial overlay text, not a subtitle; keep it crisp, readable on mobile, brief, and clear of the presenter’s eyes, mouth, hands and important references.")
+        entries.append(f"{start}-{end}s: render the exact Persian on-screen motion graphic copy «{text}» as a {style}, placed in the {position}, with {animation}. Make the kinetic typography genuinely creative and motivated by the scene: use elegant timing, depth, shape, accent colour, micro-parallax or a reveal synchronized to the action/camera when appropriate; never use a generic sticker template. It is intentional on-screen graphic text, not a subtitle; keep it crisp, readable on mobile, brief, and clear of the presenter’s eyes, mouth, hands and important references.")
     return " MOTION GRAPHICS CONTRACT: " + " ".join(entries) if entries else ""
 
 
@@ -10112,11 +10113,11 @@ def call_video_prompt_gemini(project: dict, manifest: list[dict], assets: list[d
         "task": f"Create a {target_model} prompt for every output segment. Each prompt must remain coherent when the segments are joined and must also be runnable alone with exactly its listed reference files.",
         "project": {key: value for key, value in project.items() if key not in {"lines", "timeline", "durationSeconds"}},
         "directionMode": {
-            "news_bulletin": "credible formal news bulletin; measured pacing and restrained motivated camera changes",
+            "news_bulletin": "composed direct-to-camera delivery; measured pacing and restrained motivated camera changes",
             "explainer": "clear visual explainer; conversational blocking, purposeful reframing and room for comprehensible gestures",
             "social_reel": "high-retention vertical social reel; energetic but elegant movement, immediate visual hook and clean beat changes",
-            "cinematic_report": "premium cinematic field report; environmental storytelling, dimensional blocking and expressive lens/angle progression",
-        }.get(str(project.get("directionMode")), "credible formal news bulletin"),
+            "cinematic_report": "cinematic on-location scene; environmental storytelling, dimensional blocking and expressive lens/angle progression",
+        }.get(str(project.get("directionMode")), "composed direct-to-camera delivery"),
         "shotDefinitions": {
             "formal": "formal composed medium shot",
             "semi_formal": "warm semi-formal medium shot",
@@ -10137,6 +10138,7 @@ def call_video_prompt_gemini(project: dict, manifest: list[dict], assets: list[d
             "segments": [{"index": 0, "prompt": "complete model-specific English production prompt with exact Persian dialogue and filenames", "negativePrompt": "concise English exclusions; required for Veo and optional for Gemini Omni"}],
         },
         "hardRules": [
+            "Describe observable scene, camera, performance and audio rather than adding editorial, newsroom, official-broadcast or verified-public-statement framing not requested by the user. This is style simplification, not content concealment: preserve all supplied dialogue, names, events, claims and reference meanings; never relabel factual material as fiction or remove substantive content to evade safety review. Do not promise provider acceptance or fabricate authorization or verification.",
             "When speech is enabled, the exact Persian dialogue must be quoted unchanged and be the only spoken words. When it is disabled, prohibit every spoken word, narration and lip movement that forms words.",
             "Use all and only referenceFiles assigned to that segment, spelling each filename exactly.",
             "Use every reference according to its modular profile: character identity references control identity only; location profiles control set geometry, aspect composition, presenter capacity, framing and copy-space intent.",

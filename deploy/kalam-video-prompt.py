@@ -11,14 +11,14 @@ VEO_MODELS = {
 }
 LOCATIONS = {"newsroom": "فضای داخلی حرفه‌ای با میز کار و مانیتور", "studio_main": "استودیو با مانیتور بزرگ", "studio_2": "استودیو شمارهٔ ۲", "terrace": "تراس", "living_room": "اتاق نشیمن"}
 SHOTS = {"formal": "formal composed medium shot", "semi_formal": "warm semi-formal medium shot", "close_up": "restrained close-up; never crop forehead or chin", "medium": "balanced waist-up shot", "full": "full-body shot with clear environment", "moving": "smooth motivated dolly movement", "podium": "presenter behind an elegant podium", "microphone": "presenter at a professional microphone", "reference": "camera composition guided by the supplied reference"}
-MOTION_STYLES = {"headline": "short editorial headline", "lower_third": "clean lower-third name or context strap", "stat": "large data point or statistic", "label": "small corner label"}
+MOTION_STYLES = {"headline": "short on-screen title", "lower_third": "clean lower-third name or context strap", "stat": "large data point or statistic", "label": "small corner label"}
 MOTION_POSITIONS = {"top": "upper safe area", "center": "clear central area away from the face", "bottom": "lower safe area", "left": "left safe area", "right": "right safe area"}
 MOTION_ANIMATIONS = {"fade": "gentle fade in and out", "slide_up": "short upward slide-in", "slide_left": "short lateral slide-in", "type_on": "restrained type-on reveal"}
 DIRECTION_MODES = {
-    "news_bulletin": "credible formal news bulletin with measured pacing and restrained motivated camera movement",
+    "news_bulletin": "composed direct-to-camera delivery, measured pacing and restrained motivated camera movement",
     "explainer": "clear visual explainer with conversational blocking and purposeful reframing",
     "social_reel": "high-retention social reel with an immediate visual hook and elegant beat-driven movement",
-    "cinematic_report": "premium cinematic field report with environmental storytelling and dimensional blocking",
+    "cinematic_report": "cinematic on-location scene with environmental storytelling and dimensional blocking",
 }
 CAMERA_PROGRESSION = (
     "begin on an establishing angle and make a subtle push toward the presenter",
@@ -114,7 +114,7 @@ def compile_segment(project: dict, line: dict, index: int) -> str:
         style = MOTION_STYLES.get(str(row.get("motionStyle", "headline")), MOTION_STYLES["headline"])
         position = MOTION_POSITIONS.get(str(row.get("motionPosition", "bottom")), MOTION_POSITIONS["bottom"])
         animation = MOTION_ANIMATIONS.get(str(row.get("motionAnimation", "fade")), MOTION_ANIMATIONS["fade"])
-        motion_copy.append(f"{row.get('startSecond', 0)}-{row.get('endSecond', duration)} seconds: render the exact Persian on-screen motion graphic copy «{str(row.get('motionText', '')).strip()}» as a {style}, in the {position}, with {animation}; make the kinetic typography genuinely creative and motivated by the scene using elegant timing, depth, accent colour, micro-parallax or a reveal synchronized to the action/camera when appropriate, never a generic sticker template. Keep it crisp, brief, readable on mobile and away from the presenter’s eyes, mouth and hands. It is editorial overlay text, not a subtitle.")
+        motion_copy.append(f"{row.get('startSecond', 0)}-{row.get('endSecond', duration)} seconds: render the exact Persian on-screen motion graphic copy «{str(row.get('motionText', '')).strip()}» as a {style}, in the {position}, with {animation}; make the kinetic typography genuinely creative and motivated by the scene using elegant timing, depth, accent colour, micro-parallax or a reveal synchronized to the action/camera when appropriate, never a generic sticker template. Keep it crisp, brief, readable on mobile and away from the presenter’s eyes, mouth and hands. It is on-screen graphic text, not a subtitle.")
     speech_enabled = bool(project.get("speechEnabled", True))
     continuity = "Begin as a seamless continuation of CONTINUITY_PREVIOUS_LAST_FRAME.jpg (or CONTINUITY_PARENT_LAST_FRAME.jpg when supplied); preserve the same set, wardrobe, lighting direction, screen direction and ongoing audio bed before progressing naturally. " if index > 0 or project.get("continuation") else "Establish the set and identities clearly for following segments. "
     return (f"A {duration}-second {canvas}, 24fps Veo 3.1 scene with natural motion and motivated camera movement. "
@@ -127,5 +127,5 @@ def compile_segment(project: dict, line: dict, index: int) -> str:
             + (f"Scene action: {str(line.get('description', '')).strip()}. " if line.get("description") else "")
             + (f"Timing plan: {timing}. " if timing else "")
             + (f"MOTION GRAPHICS CONTRACT: {' '.join(motion_copy)} " if motion_copy else "")
-            + "Present it as a verified, formal public-information statement, with a composed and credible tone. "
+            + "Keep the delivery natural and composed; do not imply institutional authority or independently verified facts. "
             + "Camera and lighting contract: use a professional full-frame cinema-camera look with an appropriate prime lens, correct perspective and body scale, deliberate framing and motivated camera angle/movement; keep the presenter plane and eyes sharply focused while distant layers fall into a gentle natural optical blur. Match key, fill, rim and contact shadows to the real environment and time of day, with controlled highlights and natural skin tone—never fake blur, flat face lighting or cutout compositing. Do not invent subtitles, logos or lower thirds; only render the exact motion-graphics copy explicitly listed above.")

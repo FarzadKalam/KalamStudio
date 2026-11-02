@@ -33,6 +33,30 @@ class FakeForm:
 
 
 class VideoPromptPackageTests(unittest.TestCase):
+    def test_role_filenames_are_unique_across_entities_and_keep_traceability(self) -> None:
+        assets = [
+            {"kind": "location", "entityId": "newsroom", "assetId": "one", "filename": "original-newsroom.png", "bytes": 1},
+            {"kind": "location", "entityId": "studio_2", "assetId": "two", "filename": "original-studio.png", "bytes": 1},
+        ]
+        with mock.patch.object(gateway, "selected_video_reference_assets", return_value=assets):
+            manifest = gateway.video_reference_manifest(self.project, self.user)
+        self.assertNotEqual(manifest[0]["downloadName"], manifest[1]["downloadName"])
+        self.assertIn("01.png", manifest[0]["downloadName"])
+        self.assertIn("02.png", manifest[1]["downloadName"])
+        self.assertEqual(manifest[0]["entityId"], "newsroom")
+        self.assertEqual(manifest[0]["originalFilename"], "original-newsroom.png")
+
+    def test_neutral_direction_keeps_real_dialogue_and_does_not_claim_verification(self) -> None:
+        project = gateway.validate_video_project(copy.deepcopy(self.project))
+        dialogue = "این خبر دربارهٔ تحریریه است؛ این متن باید عیناً بماند."
+        project["lines"][0]["text"] = dialogue
+        gateway.video_scene_project(project, project["lines"][0], 0)
+        prompt = gateway._VIDEO_PROMPT_RULES.compile_segment(project, project["lines"][0], 0)
+        self.assertIn(dialogue, prompt)
+        self.assertNotIn("credible formal news bulletin", prompt)
+        self.assertNotIn("Present it as a verified", prompt)
+        self.assertIn("composed direct-to-camera delivery", prompt)
+
     def test_silent_scenes_have_independent_durations_and_motion(self) -> None:
         project = copy.deepcopy(self.project)
         project.update({"generationModel": "gemini_omni_flash", "durationSeconds": 10, "speechEnabled": False})
@@ -173,7 +197,7 @@ class VideoPromptPackageTests(unittest.TestCase):
         with mock.patch.object(gateway, "call_video_prompt_gemini", return_value=generated):
             package = gateway.build_video_prompt_package(gateway.validate_video_project(self.project), self.user)
         filenames = [item["downloadName"] for item in package["references"]]
-        self.assertEqual(filenames, ["CHARACTER_KAMRAN_FLEXIBLE_IDENTITY_01.jpg", "LOCATION_NEWSROOM_FLEXIBLE_MASTER_01.png"])
+        self.assertEqual(filenames, ["CHARACTER_FLEXIBLE_IDENTITY_01.jpg", "LOCATION_FLEXIBLE_MASTER_01.png"])
         for filename in filenames:
             self.assertIn(filename, package["segments"][0]["prompt"])
         self.assertIn("Veo 3.1", package["segments"][0]["prompt"])
@@ -187,8 +211,8 @@ class VideoPromptPackageTests(unittest.TestCase):
         self.assertNotIn("GEMINI_OMNI_PROMPT.txt", names)
         self.assertIn("manifest.json", names)
         self.assertIn("prompts/segment-01/VEO_3.1_PROMPT.txt", names)
-        self.assertIn("references/CHARACTER_KAMRAN_FLEXIBLE_IDENTITY_01.jpg", names)
-        self.assertIn("references/LOCATION_NEWSROOM_FLEXIBLE_MASTER_01.png", names)
+        self.assertIn("references/CHARACTER_FLEXIBLE_IDENTITY_01.jpg", names)
+        self.assertIn("references/LOCATION_FLEXIBLE_MASTER_01.png", names)
 
     def test_motion_graphics_are_kept_exactly_inside_timeline_contract(self) -> None:
         project = {
@@ -324,7 +348,7 @@ class VideoPromptPackageTests(unittest.TestCase):
         with mock.patch.object(gateway, "call_video_prompt_gemini", return_value=generated):
             package = gateway.build_video_prompt_package(gateway.validate_video_project(project), self.user)
         monitor = next(item for item in package["references"] if item["kind"] == "monitor")
-        self.assertEqual(monitor["downloadName"], "MONITOR_NEWSROOM_FLEXIBLE_CONTENT_01.png")
+        self.assertEqual(monitor["downloadName"], "MONITOR_FLEXIBLE_CONTENT_01.png")
         self.assertIn(monitor["referenceId"], package["segments"][0]["referenceIds"])
 
 
